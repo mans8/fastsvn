@@ -95,6 +95,12 @@ interface TreeDirRow {
   added: number;
   deleted: number;
   collapsed: boolean;
+  /**
+   * svn status 里的目录条目本身（新增/删除/缺失的目录）。
+   * 它和子文件会指向同一路径，树按子文件已经长出了同名目录节点，
+   * 所以并进这一行里展示勾选框和状态字母，不再单独占一条文件行。
+   */
+  entry?: FileChange;
 }
 
 interface TreeFileRow {
@@ -114,7 +120,19 @@ function buildTreeRows(files: FileChange[], collapsed: Set<string>): TreeRow[] {
   const empty = (): Node => ({ dirs: new Map(), files: [] });
   const root = empty();
 
+  // 新增目录在 svn status 里会同时给出「目录条目」和「目录里每个文件条目」。
+  // 子文件已经让树自动长出同名目录节点，目录条目若再当文件行推一次，
+  // 同一个名字就会出现两行（一行是目录节点，一行是带 A 的目录条目）。
+  // 这里把它标成「并入目录行」，由目录行负责勾选框与状态字母。
+  const mergedEntries = new Map<string, FileChange>();
   for (const f of files) {
+    if (!f.isDir) continue;
+    const prefix = f.path + '/';
+    if (files.some((g) => g.path.startsWith(prefix))) mergedEntries.set(f.path, f);
+  }
+
+  for (const f of files) {
+    if (mergedEntries.has(f.path)) continue;
     const segs = f.path.split('/');
     let node = root;
     for (let i = 0; i < segs.length - 1; i++) {
@@ -145,7 +163,15 @@ function buildTreeRows(files: FileChange[], collapsed: Set<string>): TreeRow[] {
       const path = prefix ? `${prefix}/${name}` : name;
       const stats = count(child);
       const isCollapsed = collapsed.has(path);
-      rows.push({ type: 'dir', path, name, depth, collapsed: isCollapsed, ...stats });
+      rows.push({
+        type: 'dir',
+        path,
+        name,
+        depth,
+        collapsed: isCollapsed,
+        ...stats,
+        entry: mergedEntries.get(path),
+      });
       if (!isCollapsed) walk(child, path, depth + 1);
     }
     const sorted = [...node.files].sort((a, b) => a.name.localeCompare(b.name, 'zh'));
@@ -635,18 +661,28 @@ export function FileList({
         )}
 
         {view === 'tree' && tab === 'local'
-          ? treeRows.map((row) =>
-              row.type === 'file' ? (
-                <Fragment key={row.file.path}>
-                  {fileRow(row.file, row.depth, true)}
-                  {dirChildRows(row.file, row.depth)}
-                </Fragment>
-              ) : (
+          ? treeRows.map((row) => {
+              if (row.type === 'file') {
+                return (
+                  <Fragment key={row.file.path}>
+                    {fileRow(row.file, row.depth, true)}
+                    {dirChildRows(row.file, row.depth)}
+                  </Fragment>
+                );
+              }
+              const entry = row.entry;
+              const meta = entry ? kindMeta(entry.kind) : null;
+              return (
                 <button
                   key={`dir:${row.path}`}
                   type="button"
                   data-tree-dir={row.path}
-                  onClick={() => toggleDirRow(row.path)}
+                  data-file-row={entry?.path}
+                  onClick={() => {
+                    // 目录条目本身就是「待提交」里的一项，选中它右侧才有内容看
+                    if (entry) onSelect(entry.path);
+                    toggleDirRow(row.path);
+                  }}
                   style={{ paddingLeft: 8 + row.depth * 14 }}
                   className="flex w-full items-center gap-2.5 rounded-lg px-2 py-[3px] text-left transition-colors hover:bg-background-primary-hover"
                 >
@@ -658,6 +694,30 @@ export function FileList({
                       ].join(' ')}
                     />
                   </span>
+                  {/* 新增目录的条目并进这一行：勾选框和状态字母不能丢，
+                      否则用户没法单独选择/取消这个目录 */}
+                  <span
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex w-4 shrink-0 justify-center"
+                  >
+                    {entry ? (
+                      <Checkbox
+                        size="sm"
+                        isSelected={checked.has(entry.path)}
+                        isDisabled={entry.remote}
+                        onChange={(v) => onToggleChecked(entry.path, v)}
+                        aria-label={`选择 ${row.name}`}
+                      />
+                    ) : null}
+                  </span>
+                  {meta ? (
+                    <span
+                      className={['status-letter', meta.blockClass].join(' ')}
+                      title={meta.label}
+                    >
+                      {meta.letter}
+                    </span>
+                  ) : null}
                   {row.collapsed ? (
                     <RiFolder3Line className="size-4 shrink-0 text-accent-600 dark:text-accent-400" />
                   ) : (
@@ -674,8 +734,8 @@ export function FileList({
                     {row.fileCount} 个文件
                   </span>
                 </button>
-              )
-            )
+              );
+            })
           : visibleFiles.map((file) => (
               <Fragment key={file.path}>
                 {fileRow(file, 0)}
