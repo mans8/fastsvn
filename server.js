@@ -25,7 +25,7 @@ const DATA_DIR = process.env.FASTSVN_HOME
 const STORE_FILE = path.join(DATA_DIR, 'working-copies.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const SNAPSHOT_DIR = path.join(os.homedir(), 'Library/Application Support/FastSVN/snapshots');
-const APP_VERSION = '0.6.24';
+const APP_VERSION = '0.6.25';
 
 // ---------- svn 可执行文件解析 ----------
 
@@ -504,9 +504,13 @@ async function streamCommit(req, res, wc, files, message) {
   }
 
   if (result.code !== 0) {
-    // humanize 先翻成中文，再按"有没有账号"补一句下一步该做什么
+    // humanize 先翻成中文，再按"有没有账号"补一句下一步该做什么。
+    // 原始 stderr 一并回给界面（默认折叠），服务器/钩子给的原因不能被一句
+    // "连不上服务器"盖住；同时写进日志，事后可查。
     const hint = wcAuthHint(commitErrorHint(new Error(humanize(result.stderr, result.code))), '提交');
-    return finish('error', { message: decodeUrlText(hint.message) });
+    const detail = String(result.stderr || '').trim().slice(0, 4000);
+    if (detail) process.stderr.write(`[commit] 失败：${wc}\n${detail}\n`);
+    return finish('error', { message: decodeUrlText(hint.message), detail: decodeUrlText(detail) });
   }
 
   statusCache.delete(wc);
@@ -534,20 +538,62 @@ function humanize(stderr, code) {
   ) {
     return '这个仓库需要账号密码，或者当前账号没有这个目录的权限';
   }
-  if (s.includes('E175002') || /could not resolve/i.test(s)) return '连不上服务器，检查一下网络或仓库地址。';
+  // 路径级写权限：能读、能建 activity，但提交时被服务器 403 拒绝
+  if (s.includes('E175013') || /\b403 Forbidden\b/i.test(s)) {
+    return '服务器拒绝了这次提交：当前账号没有这个目录的写权限';
+  }
+  // 服务器钩子拒绝（企业仓库常见：提交说明格式、禁止的文件类型、大小限制）。
+  // 真正有用的原因在 "with output:" 后面，别被外层的 E175002 盖住。
+  if (/pre-commit hook|post-commit hook|hook (exit code|failed)|hook script/i.test(s)) {
+    const out = hookOutput(s);
+    return out ? `服务器拒绝了这次提交：${out}` : '服务器拒绝了这次提交（钩子脚本返回失败，原始报错见下）';
+  }
   if (s.includes('E155037')) return '工作副本需要先执行一次清理（cleanup）。';
   if (s.includes('E195020')) return '本地文件和服务器记录对不上，可能需要重新下载这个目录。';
-  // 连不上（DNS/端口/网络）单独说，别把它当成"仓库坏了"
-  if (s.includes('E170013') && !/E170001|authorization failed/i.test(s)) {
-    return '连不上这个仓库，检查一下地址和网络';
+  if (s.includes('E230001') || /certificate verification failed/i.test(s)) {
+    return '服务器的 HTTPS 证书验证失败，检查一下仓库地址是否被代理替换过。';
   }
-  // 多行报错时第一行往往只是 "Commit failed (details follow):"，
-  // 真正有用的是后面带错误码的那一行
-  const lines = s.split('\n').filter((l) => l.startsWith('svn:'));
-  const detail =
-    lines.find((l) => /^svn:\s*E\d+/.test(l) && !/details follow|E200009/.test(l)) || lines[lines.length - 1];
-  const line = detail || s.split('\n').find((l) => l.startsWith('svn:'));
-  return line ? line.replace(/^svn:\s*/, '') : `操作失败（退出码 ${code}）`;
+  // 只有真正的连接问题才说"连不上"。
+  // E175002 是「DAV 请求失败」的通用码，钩子拒绝、403、500 都会带它，
+  // 不能一看到 E175002 就断言网络不通。
+  if (
+    /E170013|Unable to connect to a repository|could not connect to server|Could not resolve host|Name or service not known|Network is unreachable|Connection (refused|reset|timed out|aborted)|Operation timed out/i.test(
+      s
+    ) &&
+    !/E170001|authorization failed/i.test(s)
+  ) {
+    return '连不上服务器，检查一下网络或仓库地址。';
+  }
+  // 其他情况（包括 E175002 这种通用错误）把服务器给的具体原因带出来
+  return bestErrorLine(s) || `操作失败（退出码 ${code}）`;
+}
+
+/** 钩子脚本写在 "with output:" 后面的几行，才是人能看懂的原因 */
+function hookOutput(s) {
+  const m = /with output:\s*\n?([\s\S]*)/i.exec(String(s || ''));
+  const lines = String(m ? m[1] : '')
+    .split('\n')
+    .map((l) => l.replace(/^svn:\s*/, '').trim())
+    .filter((l) => l && !/^E\d+:/.test(l) && !/details follow/i.test(l));
+  return lines.join(' ').slice(0, 300);
+}
+
+/**
+ * 多行报错里挑最能说明问题的一行：
+ * 第一行往往只是 "Commit failed (details follow):"，跳过它取带错误码的细节；
+ * 没有细节时再看服务器/网关直接返回的说明文本。
+ */
+function bestErrorLine(s) {
+  const lines = String(s || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const coded = lines.find((l) => /^svn:\s*E\d+/.test(l) && !/details follow|E200009/.test(l));
+  if (coded) return coded.replace(/^svn:\s*/, '');
+  const plain = lines.find((l) => !/^svn:/.test(l) && !/^</.test(l));
+  if (plain && !/^E\d+/.test(plain)) return plain.slice(0, 300);
+  const last = lines.filter((l) => l.startsWith('svn:')).pop();
+  return last ? last.replace(/^svn:\s*/, '') : '';
 }
 
 // ---------- XML 轻量解析（只取需要的字段） ----------

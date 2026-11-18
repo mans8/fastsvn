@@ -29,6 +29,7 @@ export function CommitDialog({ isOpen, onOpenChange, files, onSubmit }: Props) {
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [revision, setRevision] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   // 提交成功后工作区会被刷新（待提交清空），弹窗里要留住"这次提交了哪些文件"
   const [snapshot, setSnapshot] = useState<FileChange[] | null>(null);
 
@@ -44,6 +45,7 @@ export function CommitDialog({ isOpen, onOpenChange, files, onSubmit }: Props) {
       setSent(new Set());
       setRevision(null);
       setError(null);
+      setErrorDetail(null);
       setSnapshot(null);
     }
   }, [isOpen]);
@@ -92,6 +94,7 @@ export function CommitDialog({ isOpen, onOpenChange, files, onSubmit }: Props) {
     setSent(new Set());
     setRevision(null);
     setError(null);
+    setErrorDetail(null);
     try {
       const result = await onSubmit(message.trim(), (event) => {
         if (event.type === 'queued') {
@@ -110,6 +113,7 @@ export function CommitDialog({ isOpen, onOpenChange, files, onSubmit }: Props) {
       setPhase('done');
     } catch (e) {
       setError((e as Error).message);
+      setErrorDetail((e as Error & { detail?: string }).detail ?? null);
       setPhase('error');
     }
   };
@@ -200,6 +204,17 @@ export function CommitDialog({ isOpen, onOpenChange, files, onSubmit }: Props) {
                     <p className="mt-0.5 break-words text-caption-2-regular leading-relaxed text-red-700 dark:text-red-300">
                       {error}
                     </p>
+                    {/* 结论是归纳过的；服务器/钩子的原文默认折叠，排查时能直接看到并复制 */}
+                    {errorDetail && (
+                      <details className="mt-1.5" data-commit-error-detail>
+                        <summary className="cursor-pointer select-none text-caption-2-medium text-red-700/80 dark:text-red-300/80">
+                          查看原始报错
+                        </summary>
+                        <pre className="thin-scroll mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-red-100/70 p-2 font-mono text-caption-2-regular leading-relaxed text-red-800 dark:bg-red-500/10 dark:text-red-300">
+                          {errorDetail}
+                        </pre>
+                      </details>
+                    )}
                   </div>
                 </div>
               )}

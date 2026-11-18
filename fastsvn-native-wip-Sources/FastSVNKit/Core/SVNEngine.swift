@@ -94,27 +94,70 @@ public final class SVNEngine {
 
     /// 把 SVN 原始报错翻译成人话（FR-19）
     public static func humanize(stderr: String, code: Int32) -> String {
-        if stderr.contains("E155004") {
+        let s = stderr
+        if s.contains("E155004") {
             return "上次操作被中断，文件夹被锁住了。可以点「修复」自动清理。"
         }
-        if stderr.contains("E170001") || stderr.contains("Authentication failed") {
+        if s.contains("E170001") || s.contains("E215004")
+            || s.lowercased().contains("authentication failed")
+            || s.lowercased().contains("authorization failed") {
             return "账号或密码不对，或者你没有这个目录的权限。"
         }
-        if stderr.contains("E175002") || stderr.contains("Could not resolve") {
-            return "连不上服务器，检查一下网络或仓库地址。"
+        // 路径级写权限：能读，但提交时被服务器 403 拒绝
+        if s.contains("E175013") || s.contains("403 Forbidden") {
+            return "服务器拒绝了这次提交：当前账号没有这个目录的写权限。"
         }
-        if stderr.contains("E155037") {
+        // 服务端钩子拒绝：原因在 "with output:" 后面
+        let lower = s.lowercased()
+        if lower.contains("pre-commit hook") || lower.contains("post-commit hook")
+            || lower.contains("hook (exit code") {
+            if let out = hookOutput(s), !out.isEmpty {
+                return "服务器拒绝了这次提交：\(out)"
+            }
+            return "服务器拒绝了这次提交（钩子脚本返回失败，原始报错见下）。"
+        }
+        if s.contains("E155037") {
             return "工作副本需要先执行一次清理（cleanup）。"
         }
-        if stderr.contains("E195020") {
+        if s.contains("E195020") {
             return "本地文件和服务器记录对不上，可能需要重新下载这个目录。"
         }
-        let firstLine = stderr
-            .split(separator: "\n")
-            .first(where: { $0.hasPrefix("svn:") })
-            .map(String.init)
-        return firstLine?.replacingOccurrences(of: "svn: ", with: "")
+        if s.contains("E230001") || lower.contains("certificate verification failed") {
+            return "服务器的 HTTPS 证书验证失败，检查一下仓库地址是否被代理替换过。"
+        }
+        // E175002 是「DAV 请求失败」的通用码，钩子拒绝 / 403 / 500 都会带它，
+        // 不能一看到它就断言网络不通。只有真正的连接类报错才说"连不上"。
+        let connectionMarkers = [
+            "E170013", "Unable to connect to a repository", "could not connect to server",
+            "Could not resolve", "Connection refused", "Connection reset",
+            "Operation timed out", "Network is unreachable",
+        ]
+        if connectionMarkers.contains(where: { s.contains($0) }) && !lower.contains("authorization failed") {
+            return "连不上服务器，检查一下网络或仓库地址。"
+        }
+        let lines = s.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        // 第一行往往只是 "Commit failed (details follow):"，取带错误码的细节行
+        if let detail = lines.first(where: {
+            $0.hasPrefix("svn: E") && !$0.contains("details follow") && !$0.contains("E200009")
+        }) {
+            return detail.replacingOccurrences(of: "svn: ", with: "")
+        }
+        if let plain = lines.first(where: { !$0.hasPrefix("svn:") && !$0.hasPrefix("<") && !$0.isEmpty }) {
+            return plain
+        }
+        return lines.first(where: { $0.hasPrefix("svn:") })?.replacingOccurrences(of: "svn: ", with: "")
             ?? "操作失败（退出码 \(code)）"
+    }
+
+    /// 钩子脚本写在 "with output:" 后面的几行，才是人能看懂的原因
+    private static func hookOutput(_ stderr: String) -> String? {
+        guard let range = stderr.range(of: "with output:") else { return nil }
+        let body = stderr[range.upperBound...]
+        let text = body.split(separator: "\n")
+            .map { $0.replacingOccurrences(of: "svn: ", with: "").trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("E") }
+            .joined(separator: " ")
+        return text.isEmpty ? nil : String(text.prefix(300))
     }
 
     // MARK: - info

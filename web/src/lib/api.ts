@@ -190,7 +190,12 @@ export const api = {
           }
 
           if (event === 'error') {
-            throw new Error(decodePercent(String(payload.message ?? '提交失败')));
+            const err = new Error(decodePercent(String(payload.message ?? '提交失败')));
+            // 服务器/钩子的原始报错单独带上：结论可能被归纳过，排查时要看原文
+            if (typeof payload.detail === 'string' && payload.detail) {
+              (err as Error & { detail?: string }).detail = decodePercent(payload.detail);
+            }
+            throw err;
           }
           if (event === 'done') {
             revision = Number(payload.revision ?? 0) || 0;
