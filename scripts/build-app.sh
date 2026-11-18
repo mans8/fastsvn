@@ -25,6 +25,11 @@ swiftc -O \
 echo "    $(ls -lh "$APP/Contents/MacOS/$APP_NAME" | awk '{print $5}')"
 
 echo "==> 构建前端（React + Vite + BoardUI）"
+# 网页 favicon 跟着品牌源走，避免换了 logo 忘了同步这一份
+if [ -f "$ROOT/assets/brand/AppIcon.svg" ]; then
+  mkdir -p "$ROOT/web/public"
+  cp "$ROOT/assets/brand/AppIcon.svg" "$ROOT/web/public/favicon.svg"
+fi
 if [ ! -d "$ROOT/web/node_modules" ]; then
   echo "    web/node_modules 不存在，先安装依赖"
   (cd "$ROOT/web" && npm install --no-audit --no-fund >/dev/null)
@@ -42,6 +47,22 @@ swiftc -O \
   -sdk "$SDK" -target arm64-apple-macosx13.0 -framework Security
 chmod +x "$APP/Contents/Resources/svn-credential-store"
 cp -R "$ROOT/lib" "$APP/Contents/Resources/lib"
+# App 图标：品牌资产在 assets/brand/（SVG 是设计源，PNG 是 1024 位图，ICNS 是多尺寸）
+# 有 .icns 就直接用；只有 PNG 时现场生成，换 logo 后重新构建即可生效
+ICON_DIR="$ROOT/assets/brand"
+if [ -f "$ICON_DIR/AppIcon.icns" ]; then
+  cp "$ICON_DIR/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+elif [ -f "$ICON_DIR/AppIcon.png" ]; then
+  ICONSET="$(mktemp -d)/AppIcon.iconset"
+  mkdir -p "$ICONSET"
+  for size in 16 32 128 256 512; do
+    sips -z $size $size "$ICON_DIR/AppIcon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+    sips -z $((size * 2)) $((size * 2)) "$ICON_DIR/AppIcon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+else
+  echo "    警告：assets/brand 下没有 AppIcon.icns / AppIcon.png，应用将显示默认图标"
+fi
 # CA 根证书：内嵌 OpenSSL 靠它校验 https 仓库
 cp -R "$ROOT/ca" "$APP/Contents/Resources/ca"
 mkdir -p "$APP/Contents/Resources/web"
@@ -72,6 +93,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>com.fastsvn.app</string>
   <key>CFBundleName</key><string>FastSVN</string>
   <key>CFBundleDisplayName</key><string>FastSVN</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.6.24</string>
   <key>CFBundleVersion</key><string>1</string>
