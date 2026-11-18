@@ -129,7 +129,7 @@ export function CommitDialog({ isOpen, onOpenChange, files, onSubmit }: Props) {
         description={
           phase === 'done'
             ? `已提交到服务器，同事更新后就能看到。`
-            : `这次会把 ${viewFiles.length} 个文件提交到服务器，其他人同步后就能看到。`
+            : `这次会把 ${viewFiles.length} 项改动提交到服务器，其他人同步后就能看到。`
         }
         showCloseButton={!running}
       />
@@ -186,7 +186,7 @@ export function CommitDialog({ isOpen, onOpenChange, files, onSubmit }: Props) {
                       提交成功{revision ? ` · r${revision}` : ''}
                     </p>
                     <p className="mt-0.5 text-caption-2-regular text-green-700/80 dark:text-green-400/80">
-                      {fileTotal} 个文件已进入版本库，其他人更新后就能看到。
+                      {fileTotal} 项改动已进入版本库，其他人更新后就能看到。
                     </p>
                   </div>
                 </div>
@@ -322,7 +322,7 @@ export function CommitDialog({ isOpen, onOpenChange, files, onSubmit }: Props) {
               disabled={!message.trim() || viewFiles.length === 0}
               onClick={() => void start()}
             >
-              提交 {viewFiles.length} 个文件
+              提交 {viewFiles.length} 项
             </Button>
           </>
         )}

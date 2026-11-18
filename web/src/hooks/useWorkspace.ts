@@ -1,8 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, decodePercent } from '@/src/lib/api';
 import type { DiffPayload, FileChange, StatusPayload, WcItem } from '@/src/lib/types';
 
-export type FileTab = 'local' | 'remote' | 'files';
+export type FileTab = 'local' | 'unversioned' | 'remote' | 'files';
+
+/**
+ * 「待提交」里的条目。未纳入版本管理的文件不能提交，单独放在另一个页签；
+ * 被删掉的目录在 status 里还会逐条列出里面的文件 —— 目录行已经能说明
+ * 「含 N 个文件」并展开，这里把子项收起来，避免同一个删除出现一长串重复行。
+ */
+function pendingOf(files: FileChange[]): FileChange[] {
+  const goneDirs = files.filter(
+    (f) => (f.kind === 'missing' || f.kind === 'deleted') && f.isDir
+  );
+  return files.filter((f) => {
+    if (f.kind === 'unversioned' || f.kind === 'ignored') return false;
+    if (f.kind !== 'missing' && f.kind !== 'deleted') return true;
+    return !goneDirs.some((g) => g.path !== f.path && f.path.startsWith(g.path + '/'));
+  });
+}
 
 export interface Workspace {
   wcs: string[];
@@ -46,7 +62,7 @@ export function useWorkspace() {
   // 初始页签支持 ?tab=remote 直接打开（便于自测与截图）
   const [tab, setTab] = useState<FileTab>(() => {
     const t = new URLSearchParams(location.search).get('tab');
-    return t === 'remote' || t === 'files' ? t : 'local';
+    return t === 'remote' || t === 'files' || t === 'unversioned' ? t : 'local';
   });
   const [onlyRisk, setOnlyRisk] = useState(false);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -71,10 +87,17 @@ export function useWorkspace() {
 
   const localFiles = status?.local ?? [];
   const remoteFiles = status?.remote ?? [];
+  // 待提交 / 未纳入是两个独立页签：未纳入的文件不能勾选提交
+  const pendingFiles = useMemo(() => pendingOf(localFiles), [localFiles]);
+  const unversionedFiles = useMemo(
+    () => localFiles.filter((f) => f.kind === 'unversioned'),
+    [localFiles]
+  );
 
   const visibleFiles: FileChange[] = (() => {
-    const base = tab === 'local' ? localFiles : remoteFiles;
-    return onlyRisk ? base.filter((f) => f.risk) : base;
+    const base =
+      tab === 'local' ? pendingFiles : tab === 'unversioned' ? unversionedFiles : remoteFiles;
+    return onlyRisk ? base.filter((f) => f.risk || f.kind === 'unversioned') : base;
   })();
 
   const selectedFile = visibleFiles.find((f) => f.path === selected) ?? null;
@@ -187,7 +210,8 @@ export function useWorkspace() {
         // 勾选状态：刷新后保留用户的手动选择。
         // 原来每次刷新都重置成"全选"，用户取消勾选后一刷新就自己跳回去，
         // 看起来就像"数量没更新"。
-        const present = new Set(data.local.filter((f) => f.kind !== 'ignored').map((f) => f.path));
+        // 只有「待提交」参与勾选：未纳入版本管理的文件不能提交，不该被默认勾上。
+        const present = new Set(pendingOf(data.local).map((f) => f.path));
         // 必须在调用 setChecked 之前把"上一轮已知集合"取出来：
         // setChecked 的 updater 是延迟执行的，而下面那行是同步赋值。
         // 若在 updater 里读 knownPaths.current，读到的是已更新的新值，
@@ -307,18 +331,34 @@ export function useWorkspace() {
     [current, localFiles, remoteFiles, loadDiff]
   );
 
-  const toggleChecked = useCallback((path: string, next: boolean) => {
-    setChecked((prev) => {
-      const copy = new Set(prev);
-      if (next) copy.add(path);
-      else copy.delete(path);
-      return copy;
-    });
-  }, []);
+  const toggleChecked = useCallback(
+    (path: string, next: boolean) => {
+      setChecked((prev) => {
+        const copy = new Set(prev);
+        const apply = (p: string) => (next ? copy.add(p) : copy.delete(p));
+        apply(path);
+        // 改名的旧行和新行必须成对提交，否则 svn 会当成"删除 + 新增"，
+        // 历史断掉；界面上勾任意一条就同时勾上另一条。
+        const row = localFiles.find((f) => f.path === path);
+        const counterpart = row?.movedFrom || row?.movedTo;
+        if (counterpart) apply(counterpart);
+        return copy;
+      });
+    },
+    [localFiles]
+  );
 
   const toggleAll = useCallback(
     (next: boolean) => {
-      setChecked(next ? new Set(visibleFiles.filter((f) => f.kind !== 'ignored').map((f) => f.path)) : new Set());
+      setChecked(
+        next
+          ? new Set(
+              visibleFiles
+                .filter((f) => f.kind !== 'unversioned' && f.kind !== 'ignored' && !f.remote)
+                .map((f) => f.path)
+            )
+          : new Set()
+      );
     },
     [visibleFiles]
   );
@@ -385,6 +425,10 @@ export function useWorkspace() {
 
   const value: Workspace & {
     localFiles: FileChange[];
+    /** 待提交条目（不含未纳入、目录删除的子项已归到目录行） */
+    pendingFiles: FileChange[];
+    /** 未纳入版本管理的条目，单独一个页签，不参与提交 */
+    unversionedFiles: FileChange[];
     remoteFiles: FileChange[];
     visibleFiles: FileChange[];
     selectedFile: FileChange | null;
@@ -429,12 +473,14 @@ export function useWorkspace() {
     remoteLoading,
     remoteCachedAt,
     localFiles,
+    pendingFiles,
+    unversionedFiles,
     remoteFiles,
     visibleFiles,
     selectedFile,
     diffExpanded,
     toggleDiffExpanded,
-    activeChecked: localFiles.filter((f) => checked.has(f.path)),
+    activeChecked: pendingFiles.filter((f) => checked.has(f.path)),
     selectWc,
     selectFile,
     refresh,

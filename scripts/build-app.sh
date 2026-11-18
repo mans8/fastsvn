@@ -44,6 +44,7 @@ chmod +x "$APP/Contents/Resources/svn-credential-store"
 cp -R "$ROOT/lib" "$APP/Contents/Resources/lib"
 # CA 根证书：内嵌 OpenSSL 靠它校验 https 仓库
 cp -R "$ROOT/ca" "$APP/Contents/Resources/ca"
+mkdir -p "$APP/Contents/Resources/web"
 cp -R "$ROOT/web/dist" "$APP/Contents/Resources/web/dist"
 mkdir -p "$APP/Contents/Resources/data"
 

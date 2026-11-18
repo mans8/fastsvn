@@ -202,7 +202,7 @@ async function main() {
   check('提交按钮是窄按钮（不是通栏）', Boolean(btn && btn.width < 110 && btn.width < btn.rowWidth * 0.4), JSON.stringify(btn));
 
   const order = await evaluate(`(() => {
-    const spans = [...document.querySelectorAll('span')].filter((s) => /^已选 \\d+ 个$/.test(s.textContent.trim()));
+    const spans = [...document.querySelectorAll('span')].filter((s) => /^已选 \\d+ (?:个|项)$/.test(s.textContent.trim()));
     const count = spans[0];
     const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim().startsWith('提交'));
     if (!count || !b) return null;

@@ -58,6 +58,7 @@ try {
   const dirPane=await ev(`document.querySelector('main')?.innerText ?? ''`);
   check('界面：目录删除能列出子目录内容', /sub\/inner2\.txt/.test(dirPane), dirPane.slice(-160));
   const shotDir=await send('Page.captureScreenshot',{format:'png'});
+  fs.mkdirSync('/Users/admin/WorkBuddy/2026-11-10-15-12-01/fastsvn/screens',{recursive:true});
   fs.writeFileSync('/Users/admin/WorkBuddy/2026-11-10-15-12-01/fastsvn/screens/missing-dir-diff-0621.png',Buffer.from(shotDir.data,'base64'));
 
   const box=await ev(`(() => { const row=[...document.querySelectorAll('button')].find(b=>b.textContent.includes('gone.txt')); const r=row.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
@@ -66,6 +67,7 @@ try {
   const paneText=await ev(`document.querySelector('main')?.innerText ?? ''`);
   check('界面：右侧显示删除的内容', /第一行/.test(paneText) && !/仍受版本控制/.test(paneText), paneText.slice(0,120));
   const shot=await send('Page.captureScreenshot',{format:'png'});
+  fs.mkdirSync('/Users/admin/WorkBuddy/2026-11-10-15-12-01/fastsvn/screens',{recursive:true});
   fs.writeFileSync('/Users/admin/WorkBuddy/2026-11-10-15-12-01/fastsvn/screens/missing-diff-0619.png',Buffer.from(shot.data,'base64'));
 
   const commitBtn=await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>/^提交\\s*\\d+$/.test(x.textContent.trim())); if(!b) return null; const r=b.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
@@ -74,7 +76,7 @@ try {
   await ev(`(() => { const t=document.querySelector('[role="dialog"] textarea'); t.focus(); return true; })()`);
   await send('Input.insertText',{text:'删除不再需要的文件'});
   await sleep(200);
-  const submit=await ev(`(() => { const b=[...document.querySelectorAll('[role="dialog"] button')].find(x=>/^提交\\s*\\d+\\s*个文件$/.test(x.textContent.trim())); if(!b) return null; const r=b.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
+  const submit=await ev(`(() => { const b=[...document.querySelectorAll('[role="dialog"] button')].find(x=>/^提交\\s*\\d+\\s*项$/.test(x.textContent.trim())); if(!b) return null; const r=b.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
   check('界面：提交按钮包含 2 个文件', Boolean(submit), JSON.stringify(submit));
   if (submit) for (const type of ['mousePressed','mouseReleased']) await send('Input.dispatchMouseEvent',{type,x:submit.x,y:submit.y,button:'left',clickCount:1});
   let done=false;

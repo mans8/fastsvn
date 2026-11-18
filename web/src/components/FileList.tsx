@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import {
   RiAddLine,
   RiArrowRightSLine,
@@ -7,6 +7,7 @@ import {
   RiErrorWarningLine,
   RiExternalLinkLine,
   RiEyeOffLine,
+  RiFile3Line,
   RiFileList3Line,
   RiFolder3Line,
   RiFolderOpenLine,
@@ -46,7 +47,10 @@ export type FileAction =
 interface Props {
   tab: FileTab;
   onTabChange: (tab: FileTab) => void;
-  localFiles: FileChange[];
+  /** 「待提交」实际展示的条目数（目录删除的子项已收进目录行） */
+  pendingCount: number;
+  /** 未纳入版本管理的条目：单独页签，不参与提交 */
+  unversionedFiles: FileChange[];
   remoteFiles: FileChange[];
   visibleFiles: FileChange[];
   selected: string | null;
@@ -69,6 +73,8 @@ interface Props {
   /** 已勾选、真正会被提交的文件数 */
   commitCount: number;
   onCommit: () => void;
+  /** 「未纳入」页签头：把当前所有未纳入的条目加入版本管理 */
+  onAddAll: () => void;
   /** 本地目录里的右键操作：更新 / 删除 / 新建子目录 */
   onLocalAction: (action: LocalAction, target: LocalTarget) => void;
   /** 本地目录里双击文件：用默认应用打开 */
@@ -152,7 +158,8 @@ function buildTreeRows(files: FileChange[], collapsed: Set<string>): TreeRow[] {
 export function FileList({
   tab,
   onTabChange,
-  localFiles,
+  pendingCount,
+  unversionedFiles,
   remoteFiles,
   visibleFiles,
   selected,
@@ -169,6 +176,7 @@ export function FileList({
   browse,
   commitCount,
   onCommit,
+  onAddAll,
   onLocalAction,
   onOpenExternal,
   onRetry,
@@ -199,6 +207,17 @@ export function FileList({
     });
   };
 
+  // 目录条目展开：status 里目录只有一条，展开后能确认里面的文件还在
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const toggleDirExpanded = (path: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
   /** 一行变更（平铺与树形共用）。compact=树形：单行、无路径副标题 */
   const fileRow = (file: FileChange, depth: number, compact = false) => {
     const meta = kindMeta(file.kind);
@@ -207,11 +226,19 @@ export function FileList({
     // 冲突是红色语义：这一行整体偏红，名字标红，再挂一个「冲突」标签，
     // 别让人以为它和普通修改一样可以直接提交
     const isConflict = file.kind === 'conflicted';
+    // 目录条目：可以展开看里面的文件，点击整行就是展开/收起
+    const dirExpandable = Boolean(file.isDir && (file.children?.length ?? 0) > 0);
+    const expanded = expandedDirs.has(file.path);
     return (
       <ContextMenuTrigger key={file.path}>
         <button
           type="button"
-          onClick={() => onSelect(file.path)}
+          onClick={() => {
+            // 选中让右侧显示这个目录的删除/新增内容；可展开的目录同时展开文件列表
+            onSelect(file.path);
+            if (dirExpandable) toggleDirExpanded(file.path);
+          }}
+          aria-expanded={dirExpandable ? expanded : undefined}
           data-file-row={file.path}
           data-conflict={isConflict ? 'true' : undefined}
           style={depth ? { paddingLeft: 8 + depth * 14 } : undefined}
@@ -269,6 +296,23 @@ export function FileList({
                   会冲突
                 </span>
               )}
+              {/* 改名的两条记录互相交叉说明：旧行说"移到哪"，新行说"从哪来" */}
+              {file.movedTo && (
+                <span
+                  title="旧路径已移动到新路径，两条记录会作为一次改名一起提交，历史不中断"
+                  className="shrink-0 rounded bg-accent-50 px-1 text-caption-2-medium text-accent-700 dark:bg-accent-500/20 dark:text-accent-300"
+                >
+                  已移动
+                </span>
+              )}
+              {file.movedFrom && !file.movedTo && (
+                <span
+                  title="这条新增来自一次改名，svn 会保留文件历史"
+                  className="shrink-0 rounded bg-accent-50 px-1 text-caption-2-medium text-accent-700 dark:bg-accent-500/20 dark:text-accent-300"
+                >
+                  保留历史
+                </span>
+              )}
               {file.risk && (
                 <span
                   title={file.risk.text}
@@ -287,21 +331,42 @@ export function FileList({
               >
                 {isConflict
                   ? '先解决冲突，才能提交'
-                  : (file.kind === 'missing' || file.kind === 'deleted') && file.isDir
-                    ? '整个目录已删除，含里面的内容'
-                    : file.kind === 'missing'
-                      ? '文件已从本地删除'
-                      : file.remote && file.localChanged
-                        ? '你和同事都改了这个文件'
-                        : file.path.includes('/')
-                          ? file.path.slice(0, file.path.lastIndexOf('/'))
-                          : '根目录'}
+                  : file.movedTo
+                    ? `已移至 ${file.movedTo}`
+                    : file.movedFrom
+                      ? `移自 ${file.movedFrom}`
+                      : (file.kind === 'missing' || file.kind === 'deleted') && file.isDir
+                        ? '整个目录已删除，含里面的内容'
+                        : file.kind === 'missing'
+                          ? '文件已从本地删除'
+                          : file.remote && file.localChanged
+                            ? '你和同事都改了这个文件'
+                            : file.path.includes('/')
+                              ? file.path.slice(0, file.path.lastIndexOf('/'))
+                              : '根目录'}
               </span>
             )}
           </span>
 
-          <span className="flex shrink-0 items-center gap-1.5 font-mono text-caption-2-medium">
-            {file.binary ? (
+          <span
+            className={[
+              'flex shrink-0 items-center gap-1.5',
+              dirExpandable ? '' : 'font-mono text-caption-2-medium',
+            ].join(' ')}
+          >
+            {dirExpandable ? (
+              <>
+                <span className="text-caption-2-regular text-text-tertiary">
+                  {file.childCount ?? file.children?.length ?? 0} 个文件
+                </span>
+                <RiArrowRightSLine
+                  className={[
+                    'size-3.5 text-foreground-icon-tertiary transition-transform',
+                    expanded ? 'rotate-90' : '',
+                  ].join(' ')}
+                />
+              </>
+            ) : file.binary ? (
               <span
                 className="text-text-tertiary"
                 title={file.diffSkipped ? '体积超过 10 MB，不做差异比较' : undefined}
@@ -368,6 +433,37 @@ export function FileList({
     );
   };
 
+  /** 目录展开后的文件列表：只读，用来确认里面的文件没丢，不参与勾选 */
+  const dirChildRows = (file: FileChange, depth: number) => {
+    if (!expandedDirs.has(file.path)) return null;
+    const children = file.children ?? [];
+    if (!children.length) return null;
+    return (
+      <div data-dir-children={file.path}>
+        {children.map((child) => (
+          <div
+            key={child}
+            className="flex items-center gap-2.5 rounded-lg py-[3px] pe-2"
+            style={{ paddingLeft: 8 + depth * 14 + 26 }}
+          >
+            <RiFile3Line className="size-3.5 shrink-0 text-foreground-icon-quaternary" />
+            <span className="min-w-0 flex-1 truncate font-mono text-caption-2-regular text-text-secondary">
+              {child}
+            </span>
+          </div>
+        ))}
+        {file.childrenTruncated && (
+          <div
+            className="py-[3px] pe-2 text-caption-2-regular text-text-tertiary"
+            style={{ paddingLeft: 8 + depth * 14 + 26 }}
+          >
+            还有更多文件未列出…
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <section className="flex w-[400px] shrink-0 flex-col overflow-hidden rounded-3xl border border-border-button-default bg-background-primary-default shadow-sm">
       {/* 页签与筛选 */}
@@ -381,7 +477,10 @@ export function FileList({
           className="w-full"
         >
           <SegmentedControlItem id="local" className="flex-1">
-            待提交{localFiles.length > 0 ? ` · ${localFiles.length}` : ''}
+            待提交{pendingCount > 0 ? ` · ${pendingCount}` : ''}
+          </SegmentedControlItem>
+          <SegmentedControlItem id="unversioned" className="flex-1">
+            未纳入{unversionedFiles.length > 0 ? ` · ${unversionedFiles.length}` : ''}
           </SegmentedControlItem>
           <SegmentedControlItem id="remote" className="flex-1">
             待更新{remoteFiles.length > 0 ? ` · ${remoteFiles.length}` : ''}
@@ -403,17 +502,36 @@ export function FileList({
                 aria-label="全选"
               />
             )}
-            <span className="shrink-0 text-caption-1-regular text-text-tertiary">
+            <span className="min-w-0 flex-1 truncate text-caption-1-regular text-text-tertiary">
               {tab === 'remote'
                 ? remoteLoading
                   ? '正在检查服务器…'
                   : remoteFiles.length > 0
                     ? `${remoteFiles.length} 个文件待更新`
                     : '服务器上没有新内容'
-                : selectedInView > 0
-                  ? `已选 ${selectedInView} 个`
-                  : '未选择'}
+                : tab === 'unversioned'
+                  ? unversionedFiles.length > 0
+                    ? `${unversionedFiles.length} 个文件未纳入版本管理`
+                    : '没有未纳入的文件'
+                  : selectedInView > 0
+                    ? `已选 ${selectedInView} 项`
+                    : '未选择'}
             </span>
+
+            {/* 未纳入的文件不能提交，先加入版本管理才会出现在「待提交」 */}
+            {tab === 'unversioned' && (
+              <Button
+                variant="secondary"
+                size="small"
+                className="ml-auto shrink-0"
+                leadingIcon={RiAddLine}
+                disabled={unversionedFiles.length === 0}
+                onClick={onAddAll}
+                title="把列出的文件全部加入版本管理；文件内容不会改变"
+              >
+                全部加入
+              </Button>
+            )}
 
             {/* 视图切换：默认平铺，可切成按目录层级 */}
             {tab === 'local' && (
@@ -441,10 +559,12 @@ export function FileList({
               </Button>
             )}
 
-            <label className="ml-auto flex shrink-0 items-center gap-1.5 text-caption-1-regular text-text-secondary">
-              只看有风险
-              <Switch size="sm" isSelected={onlyRisk} onChange={onOnlyRiskChange} aria-label="只看有风险" />
-            </label>
+            {tab !== 'unversioned' && (
+              <label className="ml-auto flex shrink-0 items-center gap-1.5 text-caption-1-regular text-text-secondary">
+                只看有风险
+                <Switch size="sm" isSelected={onlyRisk} onChange={onOnlyRiskChange} aria-label="只看有风险" />
+              </label>
+            )}
           </div>
         )}
       </div>
@@ -486,7 +606,7 @@ export function FileList({
             </div>
           </div>
         )}
-        {((loading && tab === 'local') || (remoteLoading && tab === 'remote')) &&
+        {((loading && tab !== 'remote') || (remoteLoading && tab === 'remote')) &&
           visibleFiles.length === 0 && (
             <p className="px-3 py-6 text-center text-caption-1-regular text-text-tertiary">
               {tab === 'remote' ? '正在问服务器有哪些新内容…' : '正在读取状态…'}
@@ -496,14 +616,20 @@ export function FileList({
           <div className="flex flex-col items-center gap-1.5 px-4 py-10 text-center">
             <RiFileList3Line className="size-7 text-foreground-icon-quaternary" />
             <p className="text-body-2-medium text-text-secondary">
-              {tab === 'local' ? '没有待提交的改动' : '服务器上没有新内容'}
+              {tab === 'local'
+                ? '没有待提交的改动'
+                : tab === 'unversioned'
+                  ? '没有未纳入的文件'
+                  : '服务器上没有新内容'}
             </p>
             <p className="text-caption-1-regular text-text-tertiary">
-              {onlyRisk
+              {onlyRisk && tab !== 'unversioned'
                 ? '关掉「只看有风险」看看全部'
                 : tab === 'local'
                   ? '改完文件后点右上角重新扫描'
-                  : '点「更新到最新」向服务器确认一次'}
+                  : tab === 'unversioned'
+                    ? '工作副本里的文件都已纳入版本管理'
+                    : '点「更新到最新」向服务器确认一次'}
             </p>
           </div>
         )}
@@ -511,7 +637,10 @@ export function FileList({
         {view === 'tree' && tab === 'local'
           ? treeRows.map((row) =>
               row.type === 'file' ? (
-                fileRow(row.file, row.depth, true)
+                <Fragment key={row.file.path}>
+                  {fileRow(row.file, row.depth, true)}
+                  {dirChildRows(row.file, row.depth)}
+                </Fragment>
               ) : (
                 <button
                   key={`dir:${row.path}`}
@@ -547,7 +676,12 @@ export function FileList({
                 </button>
               )
             )
-          : visibleFiles.map((file) => fileRow(file, 0))}
+          : visibleFiles.map((file) => (
+              <Fragment key={file.path}>
+                {fileRow(file, 0)}
+                {dirChildRows(file, 0)}
+              </Fragment>
+            ))}
       </div>
       )}
     </section>

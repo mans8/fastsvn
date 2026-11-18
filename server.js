@@ -303,11 +303,19 @@ async function stageMissingDeletes(wc, files, supplied) {
   );
   const updateTargets = topLevel([...topMissing, ...topDeleted]);
 
+  // 改名留下的旧路径（moved-to）不能做 depth-empty 更新：
+  // 更新会把已删除的目录重新拉回来，和本地删除冲突，提交直接报 E155015。
+  // 它的删除必须和复制出来的新路径作为一个整体提交。
+  const movedSources = new Set(
+    entries.filter((e) => e.movedTo).map((e) => (path.isAbsolute(e.rel) ? path.relative(wc, e.rel) : e.rel))
+  );
+
   // 目录节点过期时 commit 会报 E155011。只把目录本身更新到 HEAD
   // （--depth empty，不下载里面的文件），这样删除才提交得上去。
   // info -r BASE 在 https 仓库上也要问服务器，必须带凭据，
   // 否则会静默失败（拿不到 kind），更新被跳过，重试永远卡在 E155011。
   for (const rel of updateTargets) {
+    if (movedSources.has(rel)) continue;
     const kind = await svnRemote(['info', '-r', 'BASE', '--show-item', 'kind', rel], wc, supplied)
       .then((s) => s.trim())
       .catch(() => '');
@@ -317,6 +325,52 @@ async function stageMissingDeletes(wc, files, supplied) {
 
   if (topMissing.length) await svn(['delete', '--force', ...topMissing], wc);
   return topMissing;
+}
+
+/**
+ * `svn delete` 一个目录后，status 里只剩目录一条，子项不再逐条出现；
+ * 而提交用的是 `--depth empty`，只提交列出的节点 —— 只给目录时
+ * svn 会返回成功但什么都没提交（删除被静默忽略）。
+ * 提交前把已排删除目录的 BASE 子项展开进来，保证删除真的落库。
+ * 只对用户明确选中的目录展开，不影响其他勾选。
+ */
+async function expandDeletedDirTargets(wc, files, supplied) {
+  const norm = (p) => (path.isAbsolute(p) ? path.relative(wc, p) : p);
+  const xml = await svn(['status', '--xml', ...files], wc).catch(() => '');
+  if (!xml) return files;
+  const deleted = parseStatus(xml)
+    .filter((e) => e.wcItem === 'deleted')
+    .map((e) => norm(e.rel))
+    .filter(Boolean);
+  if (!deleted.length) return files;
+
+  const out = [...files];
+  const have = new Set(files.map(norm));
+  for (const rel of deleted) {
+    // 只有目录需要展开。`svn list` 对文件会失败，但对"已排删除的文件"
+    // 可能退回上一级并把它自己列出来（会拼出 a.txt/a.txt 这种非法路径），
+    // 所以先本地问一次节点类型，不靠 list 的返回值猜测。
+    const kind = await svn(['info', '--show-item', 'kind', rel], wc)
+      .then((s) => s.trim())
+      .catch(() => '');
+    if (kind !== 'dir') continue;
+    let list;
+    try {
+      list = await svnRemote(['list', '-R', '-r', 'BASE', rel], wc, supplied);
+    } catch {
+      continue;
+    }
+    for (const line of list.split('\n')) {
+      const child = line.trim().replace(/\/+$/, '');
+      if (!child) continue;
+      const relPath = `${rel}/${child}`;
+      if (!have.has(relPath)) {
+        have.add(relPath);
+        out.push(relPath);
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -380,7 +434,12 @@ async function streamCommit(req, res, wc, files, message) {
     return finish('error', { message: decodeUrlText(commitErrorHint(e).message) });
   }
 
-  const args = ['--non-interactive', 'commit', '-m', message, '--depth', 'empty', ...files, ...authArgs(creds)];
+  // 已排删除的目录要展开成具体的子项：`--depth empty` 只提交列出的节点，
+  // 只给目录会让 svn 报成功、实际什么都没删。展开放在 stage 之后，
+  // 因为「本地已删除」的目录正是在 stage 阶段才变成已排删除。
+  const targets = await expandDeletedDirTargets(wc, files, supplied);
+
+  const args = ['--non-interactive', 'commit', '-m', message, '--depth', 'empty', ...targets, ...authArgs(creds)];
 
   // 一次提交尝试：进度事件直接写进 SSE，结果通过 Promise 返回
   const runAttempt = () =>
@@ -417,7 +476,9 @@ async function streamCommit(req, res, wc, files, message) {
           const m = /^(Sending|Adding|Deleting|Replacing)\s+(.+)$/.exec(line.trimEnd());
           if (!m) continue;
           queued++;
-          sseSend(res, 'queued', { done: queued, total: files.length, path: m[2].trim(), action: m[1] });
+          // 目录展开后实际提交的节点数可能多于界面上的「项」，进度按界面的项数收口
+          const shown = Math.min(queued, files.length);
+          sseSend(res, 'queued', { done: shown, total: files.length, path: m[2].trim(), action: m[1] });
         }
       });
 
@@ -528,7 +589,9 @@ function parseStatus(xml) {
     const wcItem = wc ? (/item="([^"]*)"/.exec(wc[1]) || [])[1] : null;
     const reposItem = repos ? (/item="([^"]*)"/.exec(repos[1]) || [])[1] : null;
     const copied = wc ? /copied="true"/.test(wc[1]) : false;
-    out.push({ rel, wcItem, reposItem, copied });
+    const movedFrom = wc ? unescapeXML((/moved-from="([^"]*)"/.exec(wc[1]) || [])[1] || '') : '';
+    const movedTo = wc ? unescapeXML((/moved-to="([^"]*)"/.exec(wc[1]) || [])[1] || '') : '';
+    out.push({ rel, wcItem, reposItem, copied, movedFrom, movedTo });
   }
   return out;
 }
@@ -695,6 +758,59 @@ function isNoiseFile(name) {
   if (name === '.svn') return true;
   if (settings.ignoreDsStore && (name === '.DS_Store' || name === '.ds_store')) return true;
   return false;
+}
+
+// ---------- 目录变更摘要 ----------
+// 目录移动/删除在 svn status 里只有一条记录，子文件不再逐条出现。
+// 界面要能说清「里面有几个文件」，并允许展开确认文件还在。
+const DIR_CHILD_LIST_LIMIT = 200;
+const DIR_SCAN_LIMIT = 500;
+
+/** 已从磁盘消失的目录：从 status 里缺失的子项还原文件列表 */
+function collectGoneDescendants(dirPath, files) {
+  const prefix = dirPath + '/';
+  const gone = files.filter(
+    (f) => f.path.startsWith(prefix) && (f.kind === 'missing' || f.kind === 'deleted')
+  );
+  // 子目录会连同自己的子项一起出现，只取叶子，避免把子目录本身也当成文件
+  const top = gone.filter((f) => !gone.some((g) => g !== f && g.path.startsWith(f.path + '/')));
+  const children = top.map((f) => f.path.slice(prefix.length));
+  return {
+    count: children.length,
+    children: children.slice(0, DIR_CHILD_LIST_LIMIT),
+    truncated: children.length > DIR_CHILD_LIST_LIMIT,
+  };
+}
+
+/** 还在磁盘上的目录：递归数文件，限制上限避免大目录拖慢状态接口 */
+async function scanDirChildren(abs) {
+  const out = { count: 0, children: [], truncated: false };
+  const walk = async (dirAbs, prefix) => {
+    let entries;
+    try {
+      entries = await fsp.readdir(dirAbs, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+    for (const d of entries) {
+      if (out.count >= DIR_SCAN_LIMIT) {
+        out.truncated = true;
+        return;
+      }
+      if (isNoiseFile(d.name)) continue;
+      const rel = prefix ? `${prefix}/${d.name}` : d.name;
+      if (d.isDirectory()) {
+        await walk(path.join(dirAbs, d.name), rel);
+      } else {
+        out.count++;
+        if (out.children.length < DIR_CHILD_LIST_LIMIT) out.children.push(rel);
+      }
+    }
+  };
+  await walk(abs, '');
+  if (out.count > out.children.length) out.truncated = true;
+  return out;
 }
 
 // ---------- 检出任务 ----------
@@ -1172,6 +1288,18 @@ async function buildStatus(wcPath, opts = {}) {
     const wcKind = mapKind(e.wcItem);
     const reposKind = mapKind(e.reposItem);
 
+    // svn move 留下的配对信息，界面据此把「旧路径 → 新路径」说清楚。
+    // 路径统一转成相对工作副本，绝对路径出不了工作副本。
+    const moveRel = (p) => {
+      if (!p) return null;
+      let out = p;
+      if (path.isAbsolute(out)) out = path.relative(wcPath, out);
+      if (!out || out === '.' || out.startsWith('..')) return null;
+      return out;
+    };
+    const movedFrom = moveRel(e.movedFrom);
+    const movedTo = moveRel(e.movedTo);
+
     if (wcKind && wcKind !== 'ignored' && wcKind !== 'normal') {
       // 冲突期间 svn 会生成 xxx.mine / xxx.rN 辅助文件，不该让用户去处理
       if (wcKind === 'unversioned' && /\.(mine|r\d+)$/i.test(rel)) continue;
@@ -1185,6 +1313,9 @@ async function buildStatus(wcPath, opts = {}) {
         letter: LETTER[wcKind],
         label: (wcKind === 'added' && e.copied) ? '已移动（保留历史）' : LABEL[wcKind],
         copied: !!e.copied,
+        movedFrom,
+        movedTo,
+        isDir: false,
         added: 0,
         deleted: 0,
         binary: isBinary,
@@ -1231,10 +1362,23 @@ async function buildStatus(wcPath, opts = {}) {
   // 并行 stat。
   // 原来是在上面的循环里 await，N 个改动文件就是 N 次串行 IO；
   // 上千文件各改一处时，串行 stat 会比并行慢一个数量级。
+  // 目录删除的子项不用逐个问 kind：它们在界面上收进目录行，结果用不到。
+  const gonePathSet = new Set(
+    local.filter((f) => f.kind === 'missing' || f.kind === 'deleted').map((f) => f.path)
+  );
+  const goneAncestors = new Set();
+  for (const p of gonePathSet) {
+    let i = p.lastIndexOf('/');
+    while (i > 0) {
+      goneAncestors.add(p.slice(0, i));
+      i = p.lastIndexOf('/', i - 1);
+    }
+  }
   await runLimited(toStat, 32, async (f) => {
     try {
       const abs = path.join(wcPath, f.path);
       const st = await fsp.stat(abs);
+      f.isDir = st.isDirectory();
       f.size = st.size;
       f.mtime = st.mtimeMs;
       f.sizeText = humanSize(st.size);
@@ -1247,17 +1391,33 @@ async function buildStatus(wcPath, opts = {}) {
       if (risk) f.risk = risk;
     } catch {
       /* 已删除的文件 */
-      // 目录被整个删掉时，status 只会给顶层目录；问一下 BASE 里它是什么类型，
-      // 界面才能说清"整个目录（含里面的内容）都会被删除"。
-      // deleted 也要问：上一次提交失败会把 missing 变成已排删除（D）。
+      // 目录被整个删掉时，status 只会给顶层目录；界面要说清"整个目录都会被删除"。
+      // 用不带 -r BASE 的 info：它只读工作副本元数据，不会连仓库。
+      // 带 -r BASE 会把不存在的路径解析成仓库 URL，远程仓库没凭据时必然失败。
       if (f.kind === 'missing' || f.kind === 'deleted') {
-        const nodeKind = await svn(['info', '-r', 'BASE', '--show-item', 'kind', f.path], wcPath)
-          .then((s) => s.trim())
-          .catch(() => '');
-        if (nodeKind === 'dir') f.isDir = true;
+        if (!goneAncestors.has(f.path)) {
+          const kind = await svn(['info', '--show-item', 'kind', f.path], wcPath)
+            .then((s) => s.trim())
+            .catch(() => '');
+          if (kind === 'dir') f.isDir = true;
+        }
+        // 节点信息取不到时，moved 过的还能从新路径判断
+        if (!f.isDir && f.movedTo) {
+          try {
+            const st = await fsp.stat(path.join(wcPath, f.movedTo));
+            if (st.isDirectory()) f.isDir = true;
+          } catch { /* 新路径也不在了 */ }
+        }
       }
     }
   });
+
+  // 旧目录在磁盘上已经不存在时，从 status 里的缺失子项反推它是目录
+  for (const f of local) {
+    if (f.isDir || !gonePathSet.has(f.path)) continue;
+    const prefix = f.path + '/';
+    if (local.some((g) => g !== f && g.path.startsWith(prefix))) f.isDir = true;
+  }
 
   const modified = local.filter((f) => f.kind === 'modified');
   const diffable = modified.filter((f) => !f.binary && !f.big);
@@ -1310,6 +1470,25 @@ async function buildStatus(wcPath, opts = {}) {
       f.risk = f.risk || { code: 'binaryGrowth', text: '二进制变更' };
     }
   }
+
+  // 目录条目的文件数：目录行只占一条状态，用户看不到里面的文件。
+  // 界面需要在目录行上说明"含 N 个文件"并允许展开确认，避免以为文件丢了。
+  // 旧路径不在磁盘上时：moved 过的看新路径，没 moved 的看 status 里的缺失子项。
+  const dirEntries = local.filter(
+    (f) => f.isDir && ['added', 'deleted', 'missing', 'unversioned', 'replaced'].includes(f.kind)
+  );
+  await runLimited(dirEntries, 8, async (f) => {
+    const onDisk = f.movedTo || f.path;
+    let summary = null;
+    try {
+      const st = await fsp.stat(path.join(wcPath, onDisk));
+      if (st.isDirectory()) summary = await scanDirChildren(path.join(wcPath, onDisk));
+    } catch { /* 磁盘上没有 */ }
+    if (!summary) summary = collectGoneDescendants(f.path, local);
+    f.childCount = summary.count;
+    f.children = summary.children;
+    f.childrenTruncated = summary.truncated;
+  });
 
   local.sort((a, b) => a.path.localeCompare(b.path, 'zh'));
 
@@ -1820,14 +1999,15 @@ const server = http.createServer(async (req, res) => {
         if (!files.length) throw new Error('没有选择任何文件');
         if (!message) throw new Error('请填一句说明，方便同事看懂这次改了什么');
         await stageMissingDeletes(wc, files, svnCreds(req));
+        const targets = await expandDeletedDirTargets(wc, files, svnCreds(req));
         let out;
         try {
-          out = await svnRemote(['commit', '-m', message, '--depth', 'empty', ...files], wc, svnCreds(req));
+          out = await svnRemote(['commit', '-m', message, '--depth', 'empty', ...targets], wc, svnCreds(req));
         } catch (e) {
           // 目录不是最新：更新后重试一次
           if (/E155011/.test(e.message) && (await repairOutdatedDirs(wc, e.message, svnCreds(req)))) {
             try {
-              out = await svnRemote(['commit', '-m', message, '--depth', 'empty', ...files], wc, svnCreds(req));
+              out = await svnRemote(['commit', '-m', message, '--depth', 'empty', ...targets], wc, svnCreds(req));
             } catch (retryError) {
               throw wcAuthHint(commitErrorHint(retryError), '提交');
             }

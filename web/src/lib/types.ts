@@ -41,6 +41,14 @@ export interface FileChange {
   diffSkipped?: boolean;
   /** 这个「本地已删除」的路径原本是目录（提交会连同里面的内容一起删） */
   isDir?: boolean;
+  /** svn move 的配对信息：旧路径 → 新路径（界面用来交叉说明） */
+  movedFrom?: string | null;
+  movedTo?: string | null;
+  /** 目录里的文件数：目录行只占一条 status，展开后能确认文件还在 */
+  childCount?: number;
+  /** 目录下文件的相对路径（相对这个目录，最多 200 条） */
+  children?: string[];
+  childrenTruncated?: boolean;
 }
 
 /** svn update 的一行结果：A 新增 / U 更新 / G 合并 / C 冲突 / D 删除 / E 已存在 */

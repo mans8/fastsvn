@@ -200,6 +200,9 @@ export default function App() {
         confirmLabel: '确认修复改名',
         action: async () => {
           await api.renameRepair(wc, candidate.from, candidate.to);
+          // 修复后两条记录都从「本地已删除 / 未纳入」变成待提交的改名，
+          // 直接切回「待提交」，用户能马上看到文件还在、可以提交。
+          ws.setTab('local');
           await ws.refresh({ force: true });
           toast('已修复改名', {
             description: `${candidate.from.split('/').pop()} → ${candidate.to.split('/').pop()}（历史已保留）`,
@@ -211,6 +214,61 @@ export default function App() {
     },
     [ws]
   );
+
+  /** 「未纳入」页签头的全部加入：逐个加入，个别失败不打断其他文件 */
+  const handleAddAll = useCallback(() => {
+    const wc = ws.current;
+    if (!wc) return;
+    // 疑似改名的新路径不能直接「加入」：加入后 svn 只看到删除 + 新增，
+    // 历史就断了。这部分留给上方的「修复」，其余文件照常加入。
+    const renameTargets = new Set((ws.status?.renameCandidates ?? []).map((c) => c.to));
+    const all = ws.unversionedFiles;
+    const files = all.filter((f) => !renameTargets.has(f.path));
+    const skipped = all.length - files.length;
+    if (!files.length) {
+      toast('先确认识别到的改名', {
+        description: '这些文件看起来是改名后的新路径，请点上方提示条里的「修复」保留历史。',
+        status: 'information',
+      });
+      return;
+    }
+    setConfirmState({
+      title: '把这些文件加入版本管理？',
+      description:
+        `共 ${files.length} 项还没纳入版本管理。加入后它们会出现在「待提交」里，` +
+        '文件内容不会改变；真正提交到服务器前还能逐项检查、取消。' +
+        (skipped ? `\n\n另有 ${skipped} 项疑似改名，已跳过 —— 请先用上方「修复」保留历史。` : ''),
+      confirmLabel: '全部加入',
+      action: async () => {
+        let ok = 0;
+        const failed: string[] = [];
+        for (const f of files) {
+          try {
+            await api.add(wc, f.path);
+            ok++;
+          } catch {
+            failed.push(f.name);
+          }
+        }
+        ws.setTab('local');
+        await ws.refresh({ force: true });
+        if (failed.length) {
+          toast('部分文件加入失败', {
+            description: `${ok} 项已加入，${failed.length} 项失败：${failed.slice(0, 3).join('、')}`,
+            status: 'error',
+          });
+        } else {
+          toast('已加入版本管理', {
+            description:
+              `${ok} 项已出现在「待提交」里，提交前还能逐项检查` +
+              (skipped ? `；${skipped} 项疑似改名已跳过，请先点「修复」` : ''),
+            status: 'success',
+          });
+        }
+      },
+    });
+    setDialog('confirm');
+  }, [ws]);
 
   const handleFileAction = useCallback(
     async (action: FileAction, file: FileChange) => {
@@ -496,7 +554,8 @@ export default function App() {
               <FileList
                 tab={ws.tab}
                 onTabChange={ws.setTab}
-                localFiles={ws.localFiles}
+                pendingCount={ws.pendingFiles.length}
+                unversionedFiles={ws.unversionedFiles}
                 remoteFiles={ws.remoteFiles}
                 visibleFiles={ws.visibleFiles}
                 selected={ws.selected}
@@ -514,6 +573,7 @@ export default function App() {
                 browse={browse}
                 commitCount={ws.activeChecked.length}
                 onCommit={() => setDialog('commit')}
+                onAddAll={handleAddAll}
                 onLocalAction={(action, target) => void handleLocalAction(action, target)}
                 onOpenExternal={(entry) => {
                   if (!ws.current) return;

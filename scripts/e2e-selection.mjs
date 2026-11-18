@@ -82,7 +82,7 @@ async function main() {
   const readCount = () =>
     evaluate(`(() => {
       const el = [...document.querySelectorAll('span')].find((s) =>
-        /^(已选 \\d+ 个|未选择|\\d+ 个文件待更新|正在检查服务器…|服务器上没有新内容)$/.test(s.textContent.trim())
+        /^(已选 \\d+ (?:个|项)|未选择|\\d+ 个文件待更新|正在检查服务器…|服务器上没有新内容)$/.test(s.textContent.trim())
       );
       return el ? el.textContent.trim() : 'NOT_FOUND';
     })()`);
@@ -117,14 +117,14 @@ async function main() {
 
   // 1) 初始：应显示已选 N 个，N = 本地改动数
   const initial = await readCount();
-  const initialNum = Number(/已选 (\d+) 个/.exec(initial)?.[1] ?? -1);
+  const initialNum = Number(/已选 (\d+) (?:个|项)/.exec(initial)?.[1] ?? -1);
   check('初始显示已选数量', initialNum > 0, initial);
 
   // 2) 取消勾选第一个 → 数字应减 1
   await clickFileCheckbox(0);
   await sleep(400);
   const afterUncheck = await readCount();
-  const uncheckedNum = Number(/已选 (\d+) 个/.exec(afterUncheck)?.[1] ?? 0);
+  const uncheckedNum = Number(/已选 (\d+) (?:个|项)/.exec(afterUncheck)?.[1] ?? 0);
   check(
     '取消勾选后数量立即 -1',
     initialNum >= 0 && uncheckedNum === initialNum - 1,
@@ -141,7 +141,7 @@ async function main() {
   await clickFileCheckbox(0);
   await sleep(400);
   const afterRecheck = await readCount();
-  const recheckNum = Number(/已选 (\d+) 个/.exec(afterRecheck)?.[1] ?? 0);
+  const recheckNum = Number(/已选 (\d+) (?:个|项)/.exec(afterRecheck)?.[1] ?? 0);
   check('重新勾选后数量 +1', recheckNum === uncheckedNum + 1, `${afterUncheck} → ${afterRecheck}`);
 
   // 5) 切到「待更新」→ 应显示待更新数或空态，而不是另一页签的已选数

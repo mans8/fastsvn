@@ -63,6 +63,11 @@ try {
   check('候选给出高置信度（内容一致）', (cand?.confidence ?? 0) >= 0.8, String(cand?.confidence));
   check('检测阶段不改磁盘：B 仍是未纳入', before.local?.find((f) => f.path === 'B')?.kind === 'unversioned', JSON.stringify(before.local?.find((f) => f.path === 'B')));
   check('检测阶段 A 仍是 missing', before.local?.find((f) => f.path === 'A')?.kind === 'missing', JSON.stringify(before.local?.find((f) => f.path === 'A')));
+  // 目录行要能说明「里面有几个文件」：未纳入的 B 直接在磁盘上数
+  const beforeB = before.local?.find((f) => f.path === 'B');
+  const beforeA = before.local?.find((f) => f.path === 'A');
+  check('未纳入目录标出文件数', beforeB?.isDir === true && beforeB?.childCount === 3, JSON.stringify(beforeB && { isDir: beforeB.isDir, childCount: beforeB.childCount, children: beforeB.children }));
+  check('已删除目录也从缺失子项数出文件', beforeA?.isDir === true && beforeA?.childCount === 2, JSON.stringify(beforeA && { isDir: beforeA.isDir, childCount: beforeA.childCount, children: beforeA.children }));
 
   // 2. 非法配对应被拒绝（防止把两个无关文件硬凑成改名）
   const bad = await fetch(`${base}/api/rename-repair`, {
@@ -87,6 +92,11 @@ try {
   check('旧路径变成已删除', deleted?.kind === 'deleted' && deleted?.letter === 'D', JSON.stringify(deleted));
   check('新路径变成 A(copied) 保留历史', added?.kind === 'added' && added?.copied === true && /保留历史/.test(added?.label ?? ''), JSON.stringify(added));
   check('修复后不再报改名候选', (after.renameCandidates ?? []).length === 0, JSON.stringify(after.renameCandidates));
+  check('旧行带「移到哪」的配对信息', deleted?.movedTo === 'B', JSON.stringify(deleted?.movedTo));
+  check('新行带「从哪来」的配对信息', added?.movedFrom === 'A', JSON.stringify(added?.movedFrom));
+  check('修复后两侧都标成目录', deleted?.isDir === true && added?.isDir === true, JSON.stringify({ from: deleted?.isDir, to: added?.isDir }));
+  check('旧目录仍能列出 3 个文件', deleted?.childCount === 3 && (deleted?.children ?? []).includes('new.sql'), JSON.stringify(deleted?.children));
+  check('新目录能列出 3 个文件', added?.childCount === 3 && (added?.children ?? []).length === 3, JSON.stringify(added?.children));
   check('用户在 B 里的编辑被保留', fs.readFileSync(path.join(wc, 'B', 'A1.sql'), 'utf8') === 'A1 edited\n', fs.readFileSync(path.join(wc, 'B', 'A1.sql'), 'utf8'));
   check('B 里新增的文件还在', fs.existsSync(path.join(wc, 'B', 'new.sql')));
 
