@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FastSVN</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand-row">
+      <span class="brand">Fast<b>SVN</b></span>
+    </div>
+    <div class="side-head">
+      <span>我的项目</span>
+      <button id="btnAdd" aria-label="添加项目" title="添加项目">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="proj-list" id="projList"></div>
+    <div class="side-foot">
+      <button class="side-btn" id="btnSettings">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8" cy="8" r="2.2"/>
+          <path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.5 3.5l1.2 1.2M11.3 11.3l1.2 1.2M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2" stroke-linecap="round"/>
+        </svg>
+        设置
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="toolbar">
+      <div class="crumb" id="crumb">
+        <span class="name">FastSVN</span>
+      </div>
+      <div class="tb-actions">
+        <button class="btn btn-ghost2" id="btnLog" title="查看提交历史">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.4 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          历史
+        </button>
+        <button class="btn btn-secondary" id="btnSync" disabled>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 8a5 5 0 0 1-8.6 3.5M3 8a5 5 0 0 1 8.6-3.5" stroke-linecap="round"/><path d="M11.4 1.8v2.9H8.5M4.6 14.2v-2.9h2.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          同步最新
+        </button>
+        <button class="btn btn-primary" id="btnCommit" disabled>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 11V3M4.6 6.4L8 3l3.4 3.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 12.4h10" stroke-linecap="round"/></svg>
+          上传我的改动<span class="badge-n" id="cntCommit">0</span>
+        </button>
+      </div>
+    </header>
+
+    <div id="onboard" class="onboard" hidden>
+      <div class="onboard-card">
+        <div class="onboard-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path d="M3 7.5A2 2 0 0 1 5 5.5h4l1.6 1.8H19a2 2 0 0 1 2 2v8.2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5z" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h2>还没有添加项目</h2>
+        <p>FastSVN 直接读取你电脑上已有的 SVN 文件夹，不用额外装别的东西。</p>
+        <button class="btn btn-primary btn-lg" id="btnAddFromEmpty">添加 SVN 项目</button>
+        <span class="onboard-hint">目录里需要有 <code>.svn</code>，通常是检出下来的那个文件夹</span>
+      </div>
+    </div>
+
+    <div class="workarea" id="content" hidden>
+      <section class="card list-pane">
+        <div class="list-head">
+          <div class="seg" id="seg" role="tablist">
+            <button role="tab" aria-selected="true" data-tab="local">待上传 <span class="n" id="tabLocal">0</span></button>
+            <button role="tab" aria-selected="false" data-tab="remote">待同步 <span class="n" id="tabRemote">0</span></button>
+            <button role="tab" aria-selected="false" data-tab="all">全部</button>
+          </div>
+          <div class="filters">
+            <label class="chk"><input type="checkbox" id="onlyRisk"> 只看有风险的</label>
+          </div>
+        </div>
+        <div class="rows" id="rows"></div>
+      </section>
+      <section class="card diff-pane">
+        <div class="diff-head">
+          <span class="fp" id="diffPath">—</span>
+          <div class="diff-tools">
+            <span class="stat" id="diffStat"></span>
+            <button class="mini danger" id="btnRevert" title="撤销这个文件的本地修改（会先备份）">撤销修改</button>
+            <button class="mini" aria-pressed="true">行内</button>
+            <button class="mini" aria-pressed="false">并排</button>
+          </div>
+        </div>
+        <div class="diff-body">
+          <div class="code" id="code"></div>
+          <div class="chmap" id="chmap" aria-hidden="true"></div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="statusbar">
+      <span class="ok" id="statusText">
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.2 3L13 4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        就绪
+      </span>
+      <span class="r">
+        <button class="mini" id="btnRefresh" title="重新扫描工作副本（⌘⇧R）">重新扫描</button>
+        <span id="engineInfo">svn 引擎检测中…</span>
+        <span>⌘R 同步 · ⌘K 上传</span>
+      </span>
+    </footer>
+  </main>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<section class="sheet" id="sheetCommit" role="dialog" aria-modal="true" aria-labelledby="commitTitle">
+  <div class="sheet-head">
+    <h2 id="commitTitle">上传我的改动</h2>
+    <p>这些内容会以一个新版本保存到服务器，同事同步后就能看到。</p>
+  </div>
+  <div class="sheet-body">
+    <div class="sum">
+      <div class="cell"><div class="k">文件</div><div class="v" id="sFiles">0</div></div>
+      <div class="cell"><div class="k">新增行</div><div class="v" style="color:var(--add)" id="sAdd">+0</div></div>
+      <div class="cell"><div class="k">删除行</div><div class="v" style="color:var(--del)" id="sDel">−0</div></div>
+      <div class="cell"><div class="k">风险项</div><div class="v" style="color:var(--con)" id="sRisk">0</div></div>
+    </div>
+    <div class="balance" id="balance"></div>
+    <div class="warnbox" id="warnBox" hidden>
+      <svg class="ico" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.4l6 10.6H2L8 2.4z" stroke-linejoin="round"/><path d="M8 6.6v3M8 11.4v.6" stroke-linecap="round"/></svg>
+      <div class="tx"><b id="warnTitle"></b><br><span id="warnText"></span></div>
+    </div>
+    <div id="miniList"></div>
+    <div class="field">
+      <label for="msg">这次改了什么（必填）</label>
+      <textarea id="msg" placeholder="例如：修复下单时并发导致的库存超卖"></textarea>
+      <div class="tpl" id="tpl"></div>
+    </div>
+  </div>
+  <div class="sheet-foot">
+    <span class="left" id="footCount">已选 0 个文件</span>
+    <button class="btn btn-secondary btn-lg" data-close>取消</button>
+    <button class="btn btn-primary btn-lg" id="doCommit">上传</button>
+  </div>
+</section>
+
+<section class="modal" id="modalConflict" role="dialog" aria-modal="true" aria-labelledby="confTitle">
+  <div class="modal-head">
+    <h2 id="confTitle">这个文件你和同事都改了</h2>
+    <p id="confDesc">改动落在同一位置。选一个处理方式，或者逐行挑。</p>
+  </div>
+  <div class="chips" id="confChips">
+    <button class="chip" data-accept="mine-full"><div class="t">全部用我的</div><div class="d">你的改动会覆盖同事的</div></button>
+    <button class="chip" data-accept="theirs-full"><div class="t">全部用同事的</div><div class="d">放弃你在这几处的改动</div></button>
+    <button class="chip" data-accept="working" aria-pressed="true"><div class="t">逐行挑选</div><div class="d">我已手工改好，标记为已解决</div></button>
+  </div>
+  <div class="three">
+    <div class="mine"><h4>我的版本</h4><pre id="mineCode">—</pre></div>
+    <div class="theirs"><h4>同事的版本</h4><pre id="theirsCode">—</pre></div>
+  </div>
+  <div class="modal-foot">
+    <span class="left" id="confLeft"></span>
+    <button class="btn btn-secondary btn-lg" data-close>稍后处理</button>
+    <button class="btn btn-primary btn-lg" id="resolveConflict">完成并标记已解决</button>
+  </div>
+</section>
+
+<section class="sheet" id="sheetLog" role="dialog" aria-modal="true" aria-labelledby="logTitle">
+  <div class="sheet-head">
+    <h2 id="logTitle">提交历史</h2>
+    <p>最近 50 次提交 · 点一条展开看它改了哪些文件</p>
+  </div>
+  <div class="sheet-body" id="logBody"></div>
+  <div class="sheet-foot">
+    <span class="left" id="logCount">—</span>
+    <button class="btn btn-secondary btn-lg" data-close>关闭</button>
+  </div>
+</section>
+
+<div class="ctxmenu" id="ctxMenu" hidden></div>
+
+<div class="modal" id="modalInput" role="dialog" aria-modal="true" aria-labelledby="inputTitle">
+  <div class="modal-head">
+    <h2 id="inputTitle">重命名</h2>
+    <p id="inputDesc"></p>
+  </div>
+  <div class="input-body">
+    <input id="inputField" type="text" spellcheck="false" autocomplete="off">
+    <div class="input-err" id="inputErr"></div>
+  </div>
+  <div class="modal-foot">
+    <span class="left"></span>
+    <button class="btn btn-secondary btn-lg" data-close>取消</button>
+    <button class="btn btn-primary btn-lg" id="inputOk">确定</button>
+  </div>
+</div>
+
+<div class="modal" id="modalSettings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <div class="modal-head">
+    <h2 id="settingsTitle">设置</h2>
+    <p>外观与运行信息</p>
+  </div>
+  <div class="settings-body">
+    <div class="setting-group">
+      <div class="setting-label">外观主题</div>
+      <div class="theme-cards" id="themeCards"></div>
+    </div>
+    <div class="setting-group">
+      <div class="setting-label">运行信息</div>
+      <div class="kv"><span>版本</span><b>0.2.0</b></div>
+      <div class="kv"><span>svn 引擎</span><b id="setEngine">检测中…</b></div>
+      <div class="kv"><span>数据目录</span><b class="mono">~/Library/Application Support/FastSVN</b></div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <span class="left"></span>
+    <button class="btn btn-primary btn-lg" data-close>完成</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>

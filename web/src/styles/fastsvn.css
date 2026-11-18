@@ -1,0 +1,359 @@
+/* ---------------------------------------------------------------------------
+ * FastSVN 应用层样式
+ *
+ * 只做三件事，其余全部交给 BoardUI 的语义 token：
+ *   1. 把 BoardUI 的字体变量接到 macOS 系统字体（离线可用，观感更原生）
+ *   2. 在 BoardUI 的 light / .dark 之上，扩展「高对比」与「强调色」两个维度
+ *   3. 补 BoardUI 没有的 diff 专用配色与行样式
+ *
+ * 这里不出现任何组件级硬编码色值：颜色一律引用 BoardUI token。
+ * ------------------------------------------------------------------------- */
+
+/* 0. 圆角：弹窗与工作区面板再收一档，小控件按比例递减。
+   注意：这里必须是普通的 :root 覆盖，不能写 @theme —— 这个文件在
+   Tailwind 之后单独引入，@theme 不会被处理，会原样留在产物里被浏览器忽略。 */
+:root {
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 5px;
+  --radius-2lg: 6px;
+  --radius-xl: 7px;
+  --radius-2xl: 8px;
+  --radius-3xl: 10px;
+  --radius-2-5xl: 10px;
+  --radius-notification-card: 6px;
+}
+
+/* 1. 字体：BoardUI 从 --font-inter 读取正文字体。这里不回退到 Inter 而是用系统栈，
+   避免依赖网络字体，同时让 macOS 上更贴原生。 */
+:root {
+  --font-inter: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono-source: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  /* diff 专用：从 BoardUI 的绿/红色阶派生，深色模式在下方重映射 */
+  --diff-add-bg: color-mix(in srgb, var(--color-green-500) 11%, transparent);
+  --diff-add-gut: color-mix(in srgb, var(--color-green-500) 20%, transparent);
+  --diff-del-bg: color-mix(in srgb, var(--color-red-500) 10%, transparent);
+  --diff-del-gut: color-mix(in srgb, var(--color-red-500) 19%, transparent);
+  --diff-hunk-bg: color-mix(in srgb, var(--color-accent-500) 9%, transparent);
+  --diff-add-fg: var(--color-green-700);
+  --diff-del-fg: var(--color-red-700);
+}
+
+.dark {
+  --diff-add-bg: color-mix(in srgb, var(--color-green-400) 15%, transparent);
+  --diff-add-gut: color-mix(in srgb, var(--color-green-400) 26%, transparent);
+  --diff-del-bg: color-mix(in srgb, var(--color-red-400) 15%, transparent);
+  --diff-del-gut: color-mix(in srgb, var(--color-red-400) 26%, transparent);
+  --diff-hunk-bg: color-mix(in srgb, var(--color-accent-400) 13%, transparent);
+  --diff-add-fg: var(--color-green-400);
+  --diff-del-fg: var(--color-red-400);
+}
+
+/* 2a. 高对比：把次级文字抬到主文字，边框加深，而不是另起一套色板 */
+:root[data-contrast='high'] {
+  --color-text-secondary: var(--color-neutral-700);
+  --color-text-tertiary: var(--color-neutral-600);
+  --color-text-placeholder: var(--color-neutral-600);
+  --color-border-button-default: var(--color-neutral-300);
+  --color-border-separator-border: var(--color-neutral-300);
+  --color-background-secondary-default: var(--color-neutral-200);
+  --color-background-tertiary-default: var(--color-neutral-300);
+}
+
+.dark[data-contrast='high'] {
+  --color-text-secondary: var(--color-neutral-100);
+  --color-text-tertiary: var(--color-neutral-200);
+  --color-text-placeholder: var(--color-neutral-300);
+  --color-border-button-default: var(--color-neutral-500);
+  --color-background-secondary-default: var(--color-neutral-700);
+  --color-background-tertiary-default: var(--color-neutral-600);
+}
+
+/* 2b. 强调色：BoardUI 的设计就是覆盖 accent-50…950 十一个变量完成换肤。
+   这里提供几组预设，运行时只改 <html data-accent>。 */
+:root[data-accent='violet'] {
+  --color-accent-50: var(--color-violet-50);
+  --color-accent-100: var(--color-violet-100);
+  --color-accent-200: var(--color-violet-200);
+  --color-accent-300: var(--color-violet-300);
+  --color-accent-400: var(--color-violet-400);
+  --color-accent-500: var(--color-violet-500);
+  --color-accent-600: var(--color-violet-600);
+  --color-accent-700: var(--color-violet-700);
+  --color-accent-800: var(--color-violet-800);
+  --color-accent-900: var(--color-violet-900);
+  --color-accent-950: var(--color-violet-950);
+}
+
+:root[data-accent='teal'] {
+  --color-accent-50: var(--color-teal-50);
+  --color-accent-100: var(--color-teal-100);
+  --color-accent-200: var(--color-teal-200);
+  --color-accent-300: var(--color-teal-300);
+  --color-accent-400: var(--color-teal-400);
+  --color-accent-500: var(--color-teal-500);
+  --color-accent-600: var(--color-teal-600);
+  --color-accent-700: var(--color-teal-700);
+  --color-accent-800: var(--color-teal-800);
+  --color-accent-900: var(--color-teal-900);
+  --color-accent-950: var(--color-teal-950);
+}
+
+:root[data-accent='amber'] {
+  --color-accent-50: var(--color-amber-50);
+  --color-accent-100: var(--color-amber-100);
+  --color-accent-200: var(--color-amber-200);
+  --color-accent-300: var(--color-amber-300);
+  --color-accent-400: var(--color-amber-400);
+  --color-accent-500: var(--color-amber-500);
+  --color-accent-600: var(--color-amber-600);
+  --color-accent-700: var(--color-amber-700);
+  --color-accent-800: var(--color-amber-800);
+  --color-accent-900: var(--color-amber-900);
+  --color-accent-950: var(--color-amber-950);
+}
+
+:root[data-accent='rose'] {
+  --color-accent-50: var(--color-rose-50);
+  --color-accent-100: var(--color-rose-100);
+  --color-accent-200: var(--color-rose-200);
+  --color-accent-300: var(--color-rose-300);
+  --color-accent-400: var(--color-rose-400);
+  --color-accent-500: var(--color-rose-500);
+  --color-accent-600: var(--color-rose-600);
+  --color-accent-700: var(--color-rose-700);
+  --color-accent-800: var(--color-rose-800);
+  --color-accent-900: var(--color-rose-900);
+  --color-accent-950: var(--color-rose-950);
+}
+
+/* 3. 应用框架：整页不留滚动，三栏各自滚 */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* WKWebView can scroll the document when a nested checkbox receives focus,
+   even though body is clipped. Keep page-level scrolling locked; inner panes own scroll. */
+html {
+  overflow: hidden;
+}
+
+body {
+  /* Lock the document itself. WKWebView may scroll the page to reveal a focused
+     checkbox even with overflow:hidden; only the inner panes should scroll. */
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--color-background-full);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 桌面应用内：品牌区放到红黄绿三个点的下面，而不是往右让 */
+body.in-app [data-brand-row] {
+  padding-top: 44px;
+}
+
+/* 侧栏收起时交通灯会压到工具栏上，给工具栏让出同样的空间 */
+body.in-app [data-app-shell][data-sidebar='closed'] [data-toolbar] {
+  padding-left: 84px;
+}
+
+/* 细滚动条，避免和卡片圆角打架 */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-button-hover) transparent;
+}
+.thin-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-border-button-hover);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 始终可见的滚动条。
+   macOS 默认是"滚动时才浮出来"的悬浮条，而且一旦用了标准的 scrollbar-width，
+   Chrome 就会退回原生滚动条（仍然是悬浮的）。要让它一直占位可见，
+   只能不给这个元素设 scrollbar-width / scrollbar-color，只写 webkit 伪元素。 */
+.always-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.always-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-border-button-hover);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.always-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-button-pressed, var(--color-border-button-hover));
+  background-clip: content-box;
+}
+.always-scroll::-webkit-scrollbar-track {
+  background: var(--color-background-secondary-default);
+  border-radius: 999px;
+}
+.always-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---------- diff 行 ---------- */
+
+.diff-line {
+  display: flex;
+  align-items: baseline;
+  min-width: 100%;
+  width: max-content;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: pre;
+}
+
+.diff-gutter {
+  display: flex;
+  flex: 0 0 auto;
+  user-select: none;
+  /* 行号要能读出来，但又不能抢过代码本身：用次级文本色 */
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+.diff-gutter span {
+  display: block;
+  text-align: right;
+  padding-right: 9px;
+}
+
+.diff-gutter .o {
+  width: 40px;
+  /* 新旧行号两列之间加一条极细分隔：空列时才看得出这是"两列"而不是错位 */
+  border-right: 1px solid var(--color-border-button-default);
+}
+
+.diff-gutter .n {
+  width: 40px;
+}
+
+.diff-mark {
+  flex: 0 0 18px;
+  text-align: center;
+  user-select: none;
+  color: var(--color-text-tertiary);
+}
+
+.diff-text {
+  padding-right: 20px;
+}
+
+.diff-line.is-add {
+  background: var(--diff-add-bg);
+}
+.diff-line.is-add .o,
+.diff-line.is-add .n {
+  background: var(--diff-add-gut);
+}
+.diff-line.is-add .diff-mark {
+  color: var(--diff-add-fg);
+}
+
+.diff-line.is-del {
+  background: var(--diff-del-bg);
+}
+.diff-line.is-del .o,
+.diff-line.is-del .n {
+  background: var(--diff-del-gut);
+}
+.diff-line.is-del .diff-mark {
+  color: var(--diff-del-fg);
+}
+
+.diff-line.is-hunk {
+  background: var(--diff-hunk-bg);
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+}
+.diff-line.is-hunk .diff-text {
+  padding: 0 14px;
+  color: var(--color-text-secondary);
+}
+
+/* 语法着色只做到"帮助识别结构"，不做主题化配色，避免盖过增删信号 */
+.tok-kw {
+  color: var(--color-accent-700);
+}
+.dark .tok-kw {
+  color: var(--color-accent-300);
+}
+.tok-str {
+  color: var(--color-green-700);
+}
+.dark .tok-str {
+  color: var(--color-green-400);
+}
+.tok-cm {
+  /* diff 内的注释必须仍然可读：用次级文本色而不是三级，
+     三级（neutral-400/600）在深色主题下对比度不足，会把内容"吃掉" */
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+.tok-num {
+  color: var(--color-orange-700);
+}
+.dark .tok-num {
+  color: var(--color-orange-400);
+}
+
+/* ---------- 变更地图（diff 右侧的改动位置条） ---------- */
+
+.changemap {
+  position: relative;
+  flex: 0 0 14px;
+  height: 100%;
+}
+
+.changemap i {
+  position: absolute;
+  right: 4px;
+  width: 5px;
+  height: 2px;
+  border-radius: 1px;
+  display: block;
+}
+
+/* ---------- 状态字母块 ---------- */
+
+.status-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  flex: 0 0 auto;
+}
+
+/* ---------- 提交说明输入框 ---------- */
+
+/* 光标进去后就把示例文案藏起来：否则它会和正在输入的说明混在一起，
+   让人误以为示例是自己写的内容。BoardUI 默认聚焦时反而加深占位符颜色，
+   这里用更具体的选择器覆盖。 */
+.commit-message-field textarea:focus::placeholder {
+  color: transparent;
+}

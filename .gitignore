@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Swift build artifacts
+.build/
+*.xcodeproj/xcuserdata/
+.swiftpm/
+
+# Built app bundle (含内嵌 node 运行时，约 117MB)
+build/
+
+# Node
+node_modules/
+web/dist/
+
+# 运行时本地数据与缓存
+data/
+*.log
+
+# 工作区工具目录
+.workbuddy/
