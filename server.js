@@ -10,6 +10,7 @@ const { URL } = require('node:url');
 const { createHash } = require('node:crypto');
 const { createCheckoutManager } = require('./lib/checkout');
 const { svnEnv } = require('./lib/svn-env');
+const { detectRenameCandidates, MIN_RENAME_CONFIDENCE, relNorm } = require('./lib/rename-detect');
 
 const PORT = Number(process.env.PORT ?? 5183);
 const HOST = '127.0.0.1';
@@ -1312,6 +1313,13 @@ async function buildStatus(wcPath, opts = {}) {
 
   local.sort((a, b) => a.path.localeCompare(b.path, 'zh'));
 
+  // 自动检测「访达里改名」造成的 missing + 未纳入配对。只读，不改磁盘；
+  // 修复要等用户在界面上确认，走 /api/rename-repair。
+  let renameCandidates = [];
+  if (local.some((f) => f.kind === 'missing') && local.some((f) => f.kind === 'unversioned')) {
+    renameCandidates = await detectRenameCandidates({ wcPath, local, fs, svn });
+  }
+
   // 远端数据来源：这次新查的 / 复用的旧缓存 / 没有
   let remoteFiles = remote;
   let remoteCached = false;
@@ -1331,6 +1339,7 @@ async function buildStatus(wcPath, opts = {}) {
     info,
     local,
     remote: remoteFiles,
+    renameCandidates,
     remoteCached,
     remoteFetchedAt,
     cached: false,
@@ -1547,6 +1556,13 @@ function assertWC(p) {
     throw new Error('这个目录的 .svn 不完整（可能被清理或损坏），不是可用的工作副本。可以从项目列表移除后重新检出。');
   }
   return abs;
+}
+
+/** 写接口统一的相对路径归一：去掉 ./ 和结尾斜杠，拒绝绝对路径与 .. */
+function relNormPath(p) {
+  const s = relNorm(p);
+  if (!s || s.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(s)) return '';
+  return s;
 }
 
 const MIME = {
@@ -2140,6 +2156,53 @@ const server = http.createServer(async (req, res) => {
         statusCache.delete(wc);
         remoteCache.delete(wc);
         return json(res, 200, { ok: true, newPath: path.relative(wc, dstAbs), unversioned: isUnversioned });
+      }
+
+      // 检测并修复「访达里改名」：missing + 未纳入 → svn move（保留历史）。
+      // 服务端重新验一次配对，绝不信任前端传来的 confidence，防止把无关文件硬凑成改名。
+      if (p === '/api/rename-repair' && req.method === 'POST') {
+        const body = await readBody(req);
+        const wc = assertWC(body.path);
+        const from = relNormPath(String(body.from || ''));
+        const to = relNormPath(String(body.to || ''));
+        if (!from || !to) throw new Error('缺少旧路径或新路径');
+        if (from === to) throw new Error('旧路径和新路径不能相同');
+        const fromAbs = path.join(wc, from);
+        const toAbs = path.join(wc, to);
+        if (!fromAbs.startsWith(wc + path.sep) || !toAbs.startsWith(wc + path.sep)) {
+          throw new Error('非法文件路径');
+        }
+        if (fs.existsSync(fromAbs)) throw new Error('旧路径还在磁盘上，不是「本地已删除」状态');
+        if (!fs.existsSync(toAbs)) throw new Error('新路径不存在');
+
+        // 重新读一次本地状态并重新检测：配对必须由服务端判定
+        const fresh = await buildStatus(wc, { force: true });
+        const candidates = fresh.renameCandidates || [];
+        const pair = candidates.find((c) => c.from === from && c.to === to);
+        if (!pair || pair.confidence < MIN_RENAME_CONFIDENCE) {
+          throw new Error('这两个路径看起来不是同一次改名，已取消修复');
+        }
+
+        // 破坏性元数据操作前留快照；快照失败不影响修复本身
+        await snapshot(wc, [to]).catch(() => null);
+
+        // 把新树移回旧路径，再用 svn move 挪回新路径。
+        // 直接 svn move 会因目标未纳入而报 E155010；这样一步既保留历史，
+        // 又完整保留用户在改名后做的内容修改。
+        await fsp.mkdir(path.dirname(fromAbs), { recursive: true });
+        await fsp.rename(toAbs, fromAbs);
+        try {
+          await svn(['move', fromAbs, toAbs], wc);
+        } catch (e) {
+          // 回滚：尽量把文件放回新路径，别让用户丢内容
+          if (!fs.existsSync(toAbs) && fs.existsSync(fromAbs)) {
+            await fsp.rename(fromAbs, toAbs).catch(() => {});
+          }
+          throw e;
+        }
+        statusCache.delete(wc);
+        remoteCache.delete(wc);
+        return json(res, 200, { ok: true, from, to, confidence: pair.confidence });
       }
 
       if (p === '/api/cleanup' && req.method === 'POST') {

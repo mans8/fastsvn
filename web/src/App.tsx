@@ -3,6 +3,7 @@ import { toast, Toaster } from '@/components/base/toast/toast';
 import { AppSidebar } from '@/src/components/AppSidebar';
 import { Toolbar } from '@/src/components/Toolbar';
 import { FileList, type FileAction } from '@/src/components/FileList';
+import { RenameHintBar } from '@/src/components/RenameHintBar';
 import { DiffPane } from '@/src/components/DiffPane';
 import { EmptyState } from '@/src/components/EmptyState';
 import { StatusBar } from '@/src/components/StatusBar';
@@ -24,7 +25,7 @@ import { useLocalBrowser } from '@/src/hooks/useLocalBrowser';
 import { useSettings } from '@/src/hooks/useSettings';
 import { api, decodePercent, type CommitStreamEvent } from '@/src/lib/api';
 import { basename } from '@/src/lib/format';
-import type { FileChange } from '@/src/lib/types';
+import type { FileChange, RenameCandidate } from '@/src/lib/types';
 
 /** 把 svn update 的结果说成人话：更新了什么 / 什么都没更新 */
 function updateSummary(updated: { name: string }[] | undefined) {
@@ -182,6 +183,31 @@ export default function App() {
       );
       await ws.refresh({ force: true });
       return result;
+    },
+    [ws]
+  );
+
+  /** 自动检测到的改名：弹确认框，确认后才把 missing + 未纳入还原成 svn move */
+  const handleRenameRepair = useCallback(
+    (candidate: RenameCandidate) => {
+      const wc = ws.current;
+      if (!wc) return;
+      setConfirmState({
+        title: '确认这是一次改名？',
+        description:
+          `把「${candidate.from}」还原为「${candidate.to}」的改名，并保留 SVN 历史。\n\n` +
+          '只有确认文件确实是从旧路径改过来的才继续；否则请取消，分别处理删除和新增。',
+        confirmLabel: '确认修复改名',
+        action: async () => {
+          await api.renameRepair(wc, candidate.from, candidate.to);
+          await ws.refresh({ force: true });
+          toast('已修复改名', {
+            description: `${candidate.from.split('/').pop()} → ${candidate.to.split('/').pop()}（历史已保留）`,
+            status: 'success',
+          });
+        },
+      });
+      setDialog('confirm');
     },
     [ws]
   );
@@ -461,6 +487,12 @@ export default function App() {
 
           {ws.current ? (
             <div className="flex min-h-0 flex-1 gap-3 px-4 pb-1">
+              <div className="flex min-h-0 flex-col gap-2 [&>section]:min-h-0 [&>section]:flex-1">
+              <RenameHintBar
+                candidates={ws.status?.renameCandidates ?? []}
+                busy={ws.busy}
+                onRepair={handleRenameRepair}
+              />
               <FileList
                 tab={ws.tab}
                 onTabChange={ws.setTab}
@@ -495,6 +527,7 @@ export default function App() {
                     );
                 }}
               />
+              </div>
               {ws.tab === 'files' ? (
                 <PreviewPane
                   entry={browse.selected}

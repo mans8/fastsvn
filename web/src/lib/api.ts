@@ -241,6 +241,9 @@ export const api = {
   remove: (path: string, file: string) => post<unknown>('/api/delete', { path, file }),
   rename: (path: string, file: string, newName: string) =>
     post<{ unversioned?: boolean }>('/api/rename', { path, file, newName }),
+  /** 确认修复检测到的改名：missing + 未纳入 → svn move（保留历史） */
+  renameRepair: (path: string, from: string, to: string) =>
+    post<{ ok: boolean; from: string; to: string; confidence: number }>('/api/rename-repair', { path, from, to }),
 
   /** 本地目录树里新建子目录（父目录在版本控制下会自动 svn add） */
   mkdir: (path: string, dir: string, name: string) =>

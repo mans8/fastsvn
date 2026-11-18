@@ -76,10 +76,24 @@ export interface AppSettings {
   ignoreDsStore: boolean;
 }
 
+/** 后端检测出的「访达里改名」候选（missing + 未纳入配对），只读提示 */
+export interface RenameCandidate {
+  /** 旧路径（本地已删除，仍受版控） */
+  from: string;
+  /** 新路径（未纳入版本管理，磁盘上存在） */
+  to: string;
+  /** 0..1，越高越像同一次改名 */
+  confidence: number;
+  reason: string;
+  fromIsDir: boolean;
+  toIsDir: boolean;
+}
+
 export interface StatusPayload {
   info: WcInfo;
   local: FileChange[];
   remote: FileChange[];
+  renameCandidates?: RenameCandidate[];
   tookMs: number;
   cached?: boolean;
   stale?: boolean;

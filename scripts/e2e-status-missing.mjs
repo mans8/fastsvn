@@ -49,6 +49,7 @@ async function main() {
     check('版控中的原目录显示为 missing，不冒充已计划删除', missing?.kind === 'missing', JSON.stringify(missing));
     check('missing 用「D 本地已删除」与普通删除同一套视觉', missing?.label === '本地已删除' && missing?.letter === 'D', `${missing?.letter} ${missing?.label}`);
     check('带“2”的存在副本单独显示为未纳入', duplicateStatus?.kind === 'unversioned', JSON.stringify(duplicateStatus));
+    check('同名副本不应被误判成改名候选', (payload.renameCandidates ?? []).length === 0, JSON.stringify(payload.renameCandidates));
     check('磁盘状态符合测试场景', !existsSync(tracked) && existsSync(duplicate), `${existsSync(tracked)} / ${existsSync(duplicate)}`);
 
     let failures = 0;
