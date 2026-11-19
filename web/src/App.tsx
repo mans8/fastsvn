@@ -24,7 +24,8 @@ import { useWorkspace } from '@/src/hooks/useWorkspace';
 import { useLocalBrowser } from '@/src/hooks/useLocalBrowser';
 import { useSettings } from '@/src/hooks/useSettings';
 import { api, decodePercent, type CommitStreamEvent } from '@/src/lib/api';
-import { basename } from '@/src/lib/format';
+import { copyWithToast } from '@/src/lib/clipboard';
+import { basename, joinPath } from '@/src/lib/format';
 import type { FileChange, RenameCandidate } from '@/src/lib/types';
 
 /** 把 svn update 的结果说成人话：更新了什么 / 什么都没更新 */
@@ -34,26 +35,6 @@ function updateSummary(updated: { name: string }[] | undefined) {
   const names = list.slice(0, 3).map((u) => u.name);
   const more = list.length > 3 ? ` 等 ${list.length} 个文件` : '';
   return `更新了 ${list.length} 个文件：${names.join('、')}${more}`;
-}
-
-async function copyTextToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return;
-  } catch {
-    // WKWebView / permission fallback
-  }
-
-  const field = document.createElement('textarea');
-  field.value = text;
-  field.setAttribute('readonly', '');
-  field.style.position = 'fixed';
-  field.style.opacity = '0';
-  document.body.appendChild(field);
-  field.select();
-  const copied = document.execCommand('copy');
-  field.remove();
-  if (!copied) throw new Error('剪贴板不可用');
 }
 
 type DialogId =
@@ -275,6 +256,14 @@ export default function App() {
       const wc = ws.current;
       if (!wc) return;
       try {
+        if (action === 'copy-path') {
+          void copyWithToast(joinPath(wc, file.path));
+          return;
+        }
+        if (action === 'copy-relative') {
+          void copyWithToast(file.path);
+          return;
+        }
         if (action === 'open') {
           await api.openFile(wc, file.path);
           return;
@@ -344,6 +333,24 @@ export default function App() {
       const wc = ws.current;
       if (!wc) return;
       try {
+        // 本地树的路径都相对工作副本，复制/在访达里打开要换成绝对路径
+        const abs = target.path ? joinPath(wc, target.path) : wc;
+
+        if (action === 'copy-path') {
+          void copyWithToast(abs);
+          return;
+        }
+
+        if (action === 'copy-relative') {
+          void copyWithToast(target.path);
+          return;
+        }
+
+        if (action === 'reveal') {
+          await api.reveal(abs);
+          return;
+        }
+
         if (action === 'update') {
           const r = await api.update(wc, target.path || undefined);
           await Promise.all([ws.refresh({ force: true }), browse.refresh()]);
@@ -497,9 +504,7 @@ export default function App() {
             setDialog('prompt');
           }}
           onCopyPath={(path) => {
-            void copyTextToClipboard(path)
-              .then(() => toast('路径已复制', { description: path, status: 'success' }))
-              .catch((e) => toast('复制失败', { description: (e as Error).message, status: 'error' }));
+            void copyWithToast(path);
           }}
           onRemove={(path) => {
             void (async () => {

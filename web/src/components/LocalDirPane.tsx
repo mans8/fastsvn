@@ -3,6 +3,8 @@ import {
   RiArrowRightSLine,
   RiDeleteBin6Line,
   RiFile3Line,
+  RiFileCopy2Line,
+  RiFileCopyLine,
   RiFolder3Line,
   RiFolderAddLine,
   RiFolderOpenLine,
@@ -21,7 +23,14 @@ import type { LocalDirPayload, LocalEntry } from '@/src/lib/types';
 import { basename, relativeTime } from '@/src/lib/format';
 
 /** 本地目录里可以右键做的事 */
-export type LocalAction = 'update' | 'delete' | 'mkdir' | 'history';
+export type LocalAction =
+  | 'update'
+  | 'delete'
+  | 'mkdir'
+  | 'history'
+  | 'copy-path'
+  | 'copy-relative'
+  | 'reveal';
 
 export interface LocalTarget {
   /** 相对工作副本的路径；根目录是 '' */
@@ -386,6 +395,9 @@ export function LocalDirPane({
                   if (key === 'delete') onAction('delete', target);
                   if (key === 'mkdir') onAction('mkdir', target);
                   if (key === 'history') onAction('history', target);
+                  if (key === 'copy-path') onAction('copy-path', target);
+                  if (key === 'copy-relative') onAction('copy-relative', target);
+                  if (key === 'reveal') onAction('reveal', target);
                 }}
               >
                 {row.kind !== 'file' && (
@@ -398,6 +410,19 @@ export function LocalDirPane({
                 </ContextMenuItem>
                 <ContextMenuItem id="update" icon={RiRefreshLine}>
                   更新
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem id="copy-path" icon={RiFileCopyLine}>
+                  复制路径
+                </ContextMenuItem>
+                {/* 根节点的相对路径是空串，复制出去没有意义 */}
+                {row.kind !== 'root' && (
+                  <ContextMenuItem id="copy-relative" icon={RiFileCopy2Line}>
+                    复制相对路径
+                  </ContextMenuItem>
+                )}
+                <ContextMenuItem id="reveal" icon={RiFolderOpenLine}>
+                  在访达中显示
                 </ContextMenuItem>
                 {row.kind !== 'root' && (
                   <>

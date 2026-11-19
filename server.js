@@ -25,7 +25,7 @@ const DATA_DIR = process.env.FASTSVN_HOME
 const STORE_FILE = path.join(DATA_DIR, 'working-copies.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const SNAPSHOT_DIR = path.join(os.homedir(), 'Library/Application Support/FastSVN/snapshots');
-const APP_VERSION = '0.6.25';
+const APP_VERSION = '0.6.26';
 
 // ---------- svn 可执行文件解析 ----------
 

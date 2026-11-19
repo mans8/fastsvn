@@ -70,7 +70,7 @@ export function useWorkspace() {
   const [svnEmbedded, setSvnEmbedded] = useState(false);
   const [svnVersion, setSvnVersion] = useState('');
   const [bundled, setBundled] = useState(false);
-  const [version, setVersion] = useState('0.6.25');
+  const [version, setVersion] = useState('0.6.26');
   const [tookMs, setTookMs] = useState<number | null>(null);
   const [fromCache, setFromCache] = useState(false);
   // 「待更新」是单独按需加载的：svn status -u 在远程仓库上要遍历服务器目录

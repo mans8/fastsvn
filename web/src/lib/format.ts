@@ -54,6 +54,12 @@ export function dirname(p: string): string {
   return i <= 0 ? '' : p.slice(0, i);
 }
 
+/** 把工作副本绝对路径和相对路径拼起来；相对路径为空就是工作副本根 */
+export function joinPath(base: string, rel: string): string {
+  if (!rel) return base;
+  return `${base.replace(/\/+$/, '')}/${rel.replace(/^\/+/, '')}`;
+}
+
 export function pluralFiles(n: number): string {
   return `${n} 个文件`;
 }

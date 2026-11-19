@@ -8,6 +8,8 @@ import {
   RiExternalLinkLine,
   RiEyeOffLine,
   RiFile3Line,
+  RiFileCopy2Line,
+  RiFileCopyLine,
   RiFileList3Line,
   RiFolder3Line,
   RiFolderOpenLine,
@@ -42,7 +44,9 @@ export type FileAction =
   | 'rename'
   | 'delete'
   | 'revert'
-  | 'resolve';
+  | 'resolve'
+  | 'copy-path'
+  | 'copy-relative';
 
 interface Props {
   tab: FileTab;
@@ -419,6 +423,17 @@ export function FileList({
             打开
           </ContextMenuItem>
           <ContextMenuSeparator />
+          {/* 复制只读路径文本，已删除 / 缺失 / 待更新的条目也能用 */}
+          <ContextMenuItem id="copy-path" icon={RiFileCopyLine}>
+            复制路径
+          </ContextMenuItem>
+          <ContextMenuItem id="copy-relative" icon={RiFileCopy2Line}>
+            复制相对路径
+          </ContextMenuItem>
+          {/* 只有下面真有状态相关项时才画分隔线，避免普通文件出现两条挨着的线 */}
+          {(file.kind === 'unversioned' || file.kind === 'ignored' || file.kind === 'conflicted') && (
+            <ContextMenuSeparator />
+          )}
           {(file.kind === 'unversioned' || file.kind === 'ignored') && (
             <ContextMenuItem id="add" icon={RiAddLine}>
               加入版本管理

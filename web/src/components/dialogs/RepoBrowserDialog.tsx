@@ -4,6 +4,7 @@ import {
   RiArrowRightSLine,
   RiDownloadCloud2Line,
   RiFile3Line,
+  RiFileCopy2Line,
   RiFolder3Line,
   RiFolderOpenLine,
   RiGitRepositoryLine,
@@ -12,10 +13,16 @@ import {
   RiTimeLine,
 } from '@remixicon/react';
 import { Button } from '@/components/base/buttons/button';
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/base/context-menu/context-menu';
 import { Input } from '@/components/base/input/input';
 import { Modal, ModalBody, ModalHeader } from '@/components/base/modal/modal';
 import { Spinner } from '@/components/base/spinner/spinner';
 import { api, decodePercent, type SvnCreds } from '@/src/lib/api';
+import { copyWithToast } from '@/src/lib/clipboard';
 import { canonicalUrl, prettyUrl, shortDateTime } from '@/src/lib/format';
 import type { RepoEntry, RepoFilePreview, RepoListPayload } from '@/src/lib/types';
 
@@ -50,6 +57,12 @@ const COL_MAX: Record<ColKey, number> = { name: 640, author: 220, date: 180, rev
 
 function joinUrl(base: string, name: string) {
   return `${base.replace(/\/+$/, '')}/${canonicalUrl(name)}`;
+}
+
+/** 仓库根以下的路径（以 / 开头，如 /trunk/docs/a.md）；仓库根自身返回空串 */
+function repoRelative(url: string, root: string) {
+  if (!root || !url.startsWith(root)) return '';
+  return prettyUrl(url.slice(root.length));
 }
 
 function shortName(url: string) {
@@ -579,51 +592,69 @@ export function RepoBrowserDialog({
               const isOpen = row.expanded;
               // 当前目录的祖先：颜色略深，让人看出"现在在这条路上"
               const isAncestor = !isCurrent && current.startsWith(`${row.url}/`);
+              const rel = repoRelative(row.url, root);
               return (
-                <button
-                  key={row.url}
-                  type="button"
-                  ref={(el) => {
-                    if (isCurrent) activeRowRef.current = el;
-                  }}
-                  data-tree-url={row.url}
-                  data-tree-active={isCurrent ? 'true' : undefined}
-                  onClick={() => {
-                    if (row.url !== current) void goTo(row.url);
-                    if (row.hasChildren) toggleDir(row.url);
-                  }}
-                  style={{ paddingLeft: 6 + row.depth * 12 }}
-                  className={[
-                    // 行距比之前紧一档：目录多时一屏能多看几层
-                    'relative flex w-full items-center gap-1 rounded-md py-[3px] pr-1.5 text-left transition-colors',
-                    isCurrent
-                      ? 'bg-accent-50 font-medium text-accent-700 dark:bg-accent-500/15 dark:text-accent-300'
-                      : isAncestor
-                        ? 'text-text-primary hover:bg-background-primary-hover'
-                        : 'text-text-secondary hover:bg-background-primary-hover hover:text-text-primary',
-                  ].join(' ')}
-                >
-                  {isCurrent && (
-                    <span className="absolute inset-y-1 left-0 w-[2px] rounded-full bg-accent-500 dark:bg-accent-400" />
-                  )}
-                  {row.hasChildren ? (
-                    <RiArrowRightSLine
-                      className={[
-                        'size-3 shrink-0 transition-transform',
-                        isOpen ? 'rotate-90' : '',
-                      ].join(' ')}
-                    />
-                  ) : (
-                    <span className="size-3 shrink-0" />
-                  )}
-                  {isOpen ? (
-                    <RiFolderOpenLine className="size-3.5 shrink-0 text-accent-600 dark:text-accent-400" />
-                  ) : (
-                    <RiFolder3Line className="size-3.5 shrink-0 text-foreground-icon-tertiary" />
-                  )}
-                  <span className="truncate text-caption-1-regular leading-[18px]">{row.name}</span>
-                  {row.loading && <Spinner size="xs" className="ml-auto shrink-0" />}
-                </button>
+                <ContextMenuTrigger key={row.url}>
+                  <button
+                    type="button"
+                    ref={(el) => {
+                      if (isCurrent) activeRowRef.current = el;
+                    }}
+                    data-tree-url={row.url}
+                    data-tree-active={isCurrent ? 'true' : undefined}
+                    onClick={() => {
+                      if (row.url !== current) void goTo(row.url);
+                      if (row.hasChildren) toggleDir(row.url);
+                    }}
+                    style={{ paddingLeft: 6 + row.depth * 12 }}
+                    className={[
+                      // 行距比之前紧一档：目录多时一屏能多看几层
+                      'relative flex w-full items-center gap-1 rounded-md py-[3px] pr-1.5 text-left transition-colors',
+                      isCurrent
+                        ? 'bg-accent-50 font-medium text-accent-700 dark:bg-accent-500/15 dark:text-accent-300'
+                        : isAncestor
+                          ? 'text-text-primary hover:bg-background-primary-hover'
+                          : 'text-text-secondary hover:bg-background-primary-hover hover:text-text-primary',
+                    ].join(' ')}
+                  >
+                    {isCurrent && (
+                      <span className="absolute inset-y-1 left-0 w-[2px] rounded-full bg-accent-500 dark:bg-accent-400" />
+                    )}
+                    {row.hasChildren ? (
+                      <RiArrowRightSLine
+                        className={[
+                          'size-3 shrink-0 transition-transform',
+                          isOpen ? 'rotate-90' : '',
+                        ].join(' ')}
+                      />
+                    ) : (
+                      <span className="size-3 shrink-0" />
+                    )}
+                    {isOpen ? (
+                      <RiFolderOpenLine className="size-3.5 shrink-0 text-accent-600 dark:text-accent-400" />
+                    ) : (
+                      <RiFolder3Line className="size-3.5 shrink-0 text-foreground-icon-tertiary" />
+                    )}
+                    <span className="truncate text-caption-1-regular leading-[18px]">{row.name}</span>
+                    {row.loading && <Spinner size="xs" className="ml-auto shrink-0" />}
+                  </button>
+                  <ContextMenu
+                    aria-label={`目录操作：${row.name}`}
+                    onAction={(key) => {
+                      if (key === 'copy-url') void copyWithToast(prettyUrl(row.url), '地址');
+                      if (key === 'copy-repo-path') void copyWithToast(rel, '路径');
+                    }}
+                  >
+                    <ContextMenuItem id="copy-url" icon={RiLinkM}>
+                      复制地址
+                    </ContextMenuItem>
+                    {rel && (
+                      <ContextMenuItem id="copy-repo-path" icon={RiFileCopy2Line}>
+                        复制仓库路径
+                      </ContextMenuItem>
+                    )}
+                  </ContextMenu>
+                </ContextMenuTrigger>
               );
             })}
           </div>
@@ -754,68 +785,89 @@ export function RepoBrowserDialog({
                       </tr>
                     </thead>
                     <tbody>
-                      {payload.entries.map((e) => (
-                        <tr
-                          key={e.path}
-                          data-kind={e.kind}
-                          data-name={e.name}
-                          onClick={() => {
-                            if (e.kind === 'dir') void goTo(joinUrl(current, e.name));
-                            else void openFile(e);
-                          }}
-                          className="group cursor-pointer hover:bg-background-primary-hover"
-                        >
-                          <td className="px-2.5 py-[3px]">
-                            <span className="flex items-center gap-1.5">
-                              {e.kind === 'dir' ? (
-                                <RiFolder3Line className="size-3.5 shrink-0 text-accent-600 dark:text-accent-400" />
-                              ) : (
-                                <RiFile3Line className="size-3.5 shrink-0 text-foreground-icon-tertiary" />
-                              )}
-                              <span className="truncate text-body-2-regular text-text-primary">
-                                {e.name}
-                              </span>
-                              {e.kind === 'file' && e.sizeText && (
-                                <span className="shrink-0 font-mono text-caption-2-regular text-text-secondary">
-                                  {e.sizeText}
-                                </span>
-                              )}
-                              <span className="shrink-0 text-caption-2-regular text-text-tertiary opacity-0 group-hover:opacity-100">
-                                {e.kind === 'dir' ? '打开' : '查看'}
-                              </span>
-                            </span>
-                          </td>
-                          <td className="truncate px-2 py-[3px] text-caption-2-regular text-text-secondary">
-                            {e.author || <span className="text-text-tertiary">—</span>}
-                          </td>
-                          <td className="whitespace-nowrap px-2 py-[3px] text-caption-2-regular tabular-nums text-text-secondary">
-                            {shortDateTime(e.date)}
-                          </td>
-                          <td className="whitespace-nowrap px-2 py-[3px] font-mono text-caption-1-medium tabular-nums text-text-secondary">
-                            {e.revision ?? '—'}
-                          </td>
-                          <td className="px-2.5 py-[3px]">
-                            <span className="block truncate text-caption-1-regular text-text-secondary">
-                              {e.message || <span className="text-text-tertiary">—</span>}
-                            </span>
-                          </td>
-                          <td className="px-2 py-[3px]">
-                            <button
-                              type="button"
-                              aria-label={`下载 ${e.name}`}
-                              title={e.kind === 'dir' ? '下载这个目录到本地' : '下载这个文件到本地'}
-                              onClick={(ev) => {
-                                // 别让点击冒泡成"打开目录 / 查看文件"
-                                ev.stopPropagation();
-                                onDownload(joinUrl(current, e.name));
+                      {payload.entries.map((e) => {
+                        const fullUrl = joinUrl(current, e.name);
+                        const rel = repoRelative(fullUrl, root);
+                        return (
+                          <ContextMenuTrigger key={e.path}>
+                            <tr
+                              data-kind={e.kind}
+                              data-name={e.name}
+                              onClick={() => {
+                                if (e.kind === 'dir') void goTo(joinUrl(current, e.name));
+                                else void openFile(e);
                               }}
-                              className="mx-auto flex size-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-background-primary-hover hover:text-text-primary"
+                              className="group cursor-pointer hover:bg-background-primary-hover"
                             >
-                              <RiDownloadCloud2Line className="size-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                              <td className="px-2.5 py-[3px]">
+                                <span className="flex items-center gap-1.5">
+                                  {e.kind === 'dir' ? (
+                                    <RiFolder3Line className="size-3.5 shrink-0 text-accent-600 dark:text-accent-400" />
+                                  ) : (
+                                    <RiFile3Line className="size-3.5 shrink-0 text-foreground-icon-tertiary" />
+                                  )}
+                                  <span className="truncate text-body-2-regular text-text-primary">
+                                    {e.name}
+                                  </span>
+                                  {e.kind === 'file' && e.sizeText && (
+                                    <span className="shrink-0 font-mono text-caption-2-regular text-text-secondary">
+                                      {e.sizeText}
+                                    </span>
+                                  )}
+                                  <span className="shrink-0 text-caption-2-regular text-text-tertiary opacity-0 group-hover:opacity-100">
+                                    {e.kind === 'dir' ? '打开' : '查看'}
+                                  </span>
+                                </span>
+                              </td>
+                              <td className="truncate px-2 py-[3px] text-caption-2-regular text-text-secondary">
+                                {e.author || <span className="text-text-tertiary">—</span>}
+                              </td>
+                              <td className="whitespace-nowrap px-2 py-[3px] text-caption-2-regular tabular-nums text-text-secondary">
+                                {shortDateTime(e.date)}
+                              </td>
+                              <td className="whitespace-nowrap px-2 py-[3px] font-mono text-caption-1-medium tabular-nums text-text-secondary">
+                                {e.revision ?? '—'}
+                              </td>
+                              <td className="px-2.5 py-[3px]">
+                                <span className="block truncate text-caption-1-regular text-text-secondary">
+                                  {e.message || <span className="text-text-tertiary">—</span>}
+                                </span>
+                              </td>
+                              <td className="px-2 py-[3px]">
+                                <button
+                                  type="button"
+                                  aria-label={`下载 ${e.name}`}
+                                  title={e.kind === 'dir' ? '下载这个目录到本地' : '下载这个文件到本地'}
+                                  onClick={(ev) => {
+                                    // 别让点击冒泡成"打开目录 / 查看文件"
+                                    ev.stopPropagation();
+                                    onDownload(joinUrl(current, e.name));
+                                  }}
+                                  className="mx-auto flex size-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-background-primary-hover hover:text-text-primary"
+                                >
+                                  <RiDownloadCloud2Line className="size-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                            <ContextMenu
+                              aria-label={`仓库操作：${e.name}`}
+                              onAction={(key) => {
+                                if (key === 'copy-url') void copyWithToast(prettyUrl(fullUrl), '地址');
+                                if (key === 'copy-repo-path') void copyWithToast(rel, '路径');
+                              }}
+                            >
+                              <ContextMenuItem id="copy-url" icon={RiLinkM}>
+                                复制地址
+                              </ContextMenuItem>
+                              {rel && (
+                                <ContextMenuItem id="copy-repo-path" icon={RiFileCopy2Line}>
+                                  复制仓库路径
+                                </ContextMenuItem>
+                              )}
+                            </ContextMenu>
+                          </ContextMenuTrigger>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
