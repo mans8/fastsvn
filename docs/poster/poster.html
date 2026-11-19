@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<style>
+  @font-face { font-family: 'Outfit'; src: url('assets/Outfit-Regular.ttf') format('truetype'); font-weight: 400; font-display: block; }
+  @font-face { font-family: 'Outfit'; src: url('assets/Outfit-Bold.ttf') format('truetype'); font-weight: 700; font-display: block; }
+  @font-face { font-family: 'Jura'; src: url('assets/Jura-Medium.ttf') format('truetype'); font-display: block; }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:        #14101A;   /* 深紫黑，带玫红色相 */
+    --paper:     #FDF5F9;   /* 暖白，带一点粉 */
+    --muted:     #A99AAE;
+    --line:      #312638;
+    --brand:     #FF5E9C;   /* logo 亮玫红 */
+    --brand-2:   #C81D6E;   /* logo 深洋红 */
+    --brand-hi:  #FF93C0;   /* 高光粉 */
+  }
+
+  html, body { width: 1280px; height: 720px; overflow: hidden; }
+
+  body {
+    font-family: 'Outfit', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+    background: var(--bg);
+    color: var(--paper);
+    position: relative;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ——— 背景：大圆晕 + 细网格 ——— */
+  .orb { position: absolute; border-radius: 50%; pointer-events: none; }
+  .orb-a {
+    left: -120px; top: -130px; width: 560px; height: 560px;
+    background: radial-gradient(circle, rgba(255,94,156,.20) 0%, rgba(200,29,110,.06) 45%, transparent 70%);
+  }
+  .orb-b {
+    right: -140px; bottom: -200px; width: 620px; height: 620px;
+    background: radial-gradient(circle, rgba(200,29,110,.14) 0%, transparent 68%);
+  }
+  .grid {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse 75% 85% at 32% 42%, #000 0%, transparent 88%);
+    -webkit-mask-image: radial-gradient(ellipse 75% 85% at 32% 42%, #000 0%, transparent 88%);
+  }
+  /* 散布装饰圆点（呼应 logo） */
+  .speck { position: absolute; border-radius: 50%; background: var(--brand); opacity: .5; }
+  .s1 { left: 505px; top: 96px; width: 7px; height: 7px; opacity: .75; }
+  .s2 { left: 548px; top: 128px; width: 4px; height: 4px; opacity: .5; }
+  .s3 { left: 30px; top: 470px; width: 5px; height: 5px; }
+  .s4 { left: 600px; top: 640px; width: 9px; height: 9px; opacity: .35; }
+
+  /* 巨大倾斜 svn 水印（logo 字标的回响） */
+  .watermark {
+    position: absolute; left: 300px; top: 300px;
+    font-family: 'Arial Black', 'Helvetica Neue', sans-serif;
+    font-size: 300px; font-weight: 900; letter-spacing: -30px;
+    color: transparent; -webkit-text-stroke: 1.5px rgba(255,94,156,.055);
+    transform: rotate(-24deg); pointer-events: none; white-space: nowrap;
+  }
+
+  /* ——— 顶部品牌条 ——— */
+  .topbar {
+    position: absolute; top: 44px; left: 64px; right: 64px;
+    display: flex; align-items: center; justify-content: space-between; z-index: 3;
+  }
+  .brand { display: flex; align-items: center; gap: 13px; }
+  .logo { width: 40px; height: 40px; display: block; }
+  .brand-name {
+    font-family: 'Arial Black', 'Outfit', sans-serif; font-weight: 900;
+    font-size: 22px; letter-spacing: -.7px; color: var(--paper);
+  }
+  .brand-name .svn { color: var(--brand); }
+  .top-tag {
+    font-family: 'Jura', sans-serif; font-size: 12.5px; letter-spacing: 2.6px;
+    color: var(--muted); text-transform: uppercase;
+  }
+
+  /* ——— 左侧文案区 ——— */
+  .copy { position: absolute; left: 64px; top: 150px; width: 575px; z-index: 3; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-family: 'Jura', 'PingFang SC', sans-serif; font-size: 13px; letter-spacing: 2px;
+    color: var(--brand); text-transform: uppercase; margin-bottom: 20px;
+  }
+  .eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 12px rgba(255,94,156,.7); }
+
+  .headline { line-height: 1.04; }
+  .headline .l1, .headline .l3 {
+    display: block;
+    font-family: 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+    font-weight: 800; font-size: 54px; letter-spacing: -1.5px; color: var(--paper);
+  }
+  .headline .l2 {
+    display: block; margin: 2px 0 4px -3px;
+    font-family: 'Arial Black', 'PingFang SC', sans-serif;
+    font-weight: 900; font-size: 66px; letter-spacing: -2px;
+    background: linear-gradient(100deg, var(--brand-hi) 0%, var(--brand) 42%, var(--brand-2) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    transform: skewX(-9deg) rotate(-1.5deg); transform-origin: left center;
+    width: max-content;
+  }
+  .headline .l3 .yr { font-family: 'Arial Black', sans-serif; color: var(--paper); }
+
+  .subcopy {
+    margin-top: 24px; width: 468px;
+    font-size: 15.5px; line-height: 1.6; color: #B9A9BD; font-weight: 400;
+  }
+
+  /* ——— 卖点列表 ——— */
+  .features { margin-top: 30px; display: flex; flex-direction: column; gap: 13px; }
+  .feature { display: flex; align-items: center; gap: 14px; }
+  .ficon {
+    width: 34px; height: 34px; flex: 0 0 34px; border-radius: 10px;
+    background: linear-gradient(145deg, rgba(255,94,156,.18), rgba(200,29,110,.08));
+    border: 1px solid rgba(255,94,156,.3);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ficon svg { width: 18px; height: 18px; stroke: var(--brand); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .ftxt .t {
+    font-family: 'Outfit', 'PingFang SC', sans-serif; font-weight: 700; font-size: 14.5px;
+    letter-spacing: .2px; color: var(--paper);
+  }
+  .ftxt .d { font-size: 12.5px; color: #8F8096; margin-top: 1px; }
+
+  /* ——— 右侧产品界面 ——— */
+  .window {
+    position: absolute; right: 52px; top: 138px; width: 690px; height: 466px;
+    background: #FFFFFF; border-radius: 14px; overflow: hidden; z-index: 2;
+    box-shadow: 0 40px 90px rgba(0,0,0,.6), 0 0 0 1px rgba(255,147,192,.14),
+                0 0 60px rgba(255,94,156,.10);
+    transform: perspective(1600px) rotateY(-7deg) rotateX(2deg);
+    transform-origin: center right;
+  }
+  .wbar {
+    height: 34px; background: #EDEFF2; border-bottom: 1px solid #DDE1E6;
+    display: flex; align-items: center; padding: 0 14px; gap: 7px;
+  }
+  .wdot { width: 10px; height: 10px; border-radius: 50%; }
+  .wtitle {
+    margin-left: auto; margin-right: auto; font-family: -apple-system, 'PingFang SC', sans-serif;
+    font-size: 11px; color: #6B7280; font-weight: 500;
+    transform: translateX(-14px);
+  }
+  .window img { display: block; width: 100%; height: calc(100% - 34px); object-fit: cover; object-position: top left; }
+
+  /* ——— 底部信息条 ——— */
+  .footer {
+    position: absolute; left: 64px; right: 64px; bottom: 26px;
+    display: flex; align-items: center; justify-content: space-between; z-index: 3;
+    padding-top: 16px; border-top: 1px solid var(--line);
+  }
+  .fstat { display: flex; align-items: center; gap: 10px; }
+  .fstat .pill {
+    font-family: 'Jura', 'PingFang SC', sans-serif; font-size: 11px; letter-spacing: 1.1px;
+    color: #A294AA; text-transform: uppercase;
+    padding: 4px 11px; border: 1px solid var(--line); border-radius: 20px;
+  }
+  .fstat .pill b { color: var(--brand); font-weight: 400; }
+  .repo {
+    display: flex; align-items: center; gap: 9px;
+    font-family: 'Jura', 'PingFang SC', sans-serif; font-size: 13px; letter-spacing: .5px; color: #D9CBDC;
+  }
+  .repo svg { width: 17px; height: 17px; fill: var(--muted); }
+  .repo .arrow { color: var(--brand); font-size: 16px; }
+</style>
+</head>
+<body>
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+  <div class="grid"></div>
+  <div class="watermark">svn</div>
+  <span class="speck s1"></span>
+  <span class="speck s2"></span>
+  <span class="speck s3"></span>
+  <span class="speck s4"></span>
+
+  <!-- 顶部品牌条 -->
+  <div class="topbar">
+    <div class="brand">
+      <img class="logo" src="assets/logo.svg" alt="FastSVN logo" />
+      <div class="brand-name">Fast<span class="svn">SVN</span></div>
+    </div>
+    <div class="top-tag">The modern Subversion client</div>
+  </div>
+
+  <!-- 左侧文案 -->
+  <div class="copy">
+    <div class="eyebrow"><span class="dot"></span>开源 · 免费 · 为 macOS 而生</div>
+
+    <h1 class="headline">
+      <span class="l1">终于，一个</span>
+      <span class="l2">不像 2005 年</span>
+      <span class="l3">的 <span class="yr">SVN</span> 客户端。</span>
+    </h1>
+
+    <p class="subcopy">真正的本机 svn 引擎，现代界面，检出带实时进度与速度。<br/>提交、更新、冲突处理、远程浏览——一目了然。</p>
+
+    <div class="features">
+      <div class="feature">
+        <div class="ficon">
+          <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.4 9.4 8 10 4.6-.6 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
+        </div>
+        <div class="ftxt"><div class="t">100% 开源</div><div class="d">代码公开可审计，拒绝黑盒</div></div>
+      </div>
+      <div class="feature">
+        <div class="ficon">
+          <svg viewBox="0 0 24 24"><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7"/><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/></svg>
+        </div>
+        <div class="ftxt"><div class="t">永久免费</div><div class="d">无订阅、无广告、无功能墙</div></div>
+      </div>
+      <div class="feature">
+        <div class="ficon">
+          <svg viewBox="0 0 24 24"><path d="M16 18c-1.5 1-3 1.5-5 1.5A6.5 6.5 0 0 1 4.5 13c0-2 .6-3.6 1.8-5"/><path d="M8 6c1.5-1 3-1.5 5-1.5A6.5 6.5 0 0 1 19.5 11c0 2-.6 3.6-1.8 5"/><path d="m9 6 3-3 3 3"/><path d="m15 18-3 3-3-3"/></svg>
+        </div>
+        <div class="ftxt"><div class="t">macOS 原生体验</div><div class="d">原生外壳 + 亮/暗双主题，为 Mac 精心打磨</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 产品界面 -->
+  <div class="window">
+    <div class="wbar">
+      <span class="wdot" style="background:#FF5F57"></span>
+      <span class="wdot" style="background:#FEBC2E"></span>
+      <span class="wdot" style="background:#28C840"></span>
+      <span class="wtitle">支付网关 — FastSVN</span>
+    </div>
+    <img src="assets/app-light.png" alt="FastSVN 界面" />
+  </div>
+
+  <!-- 底部信息 -->
+  <div class="footer">
+    <div class="fstat">
+      <span class="pill"><b>◆</b> 真实 svn 引擎</span>
+      <span class="pill">非 Mock · 非 Demo</span>
+    </div>
+    <div class="repo">
+      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.58 2 12.23c0 4.51 2.87 8.34 6.84 9.69.5.1.68-.22.68-.49v-1.7c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.35 1.12 2.92.86.09-.66.35-1.12.64-1.38-2.22-.26-4.55-1.14-4.55-5.05 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.4 9.4 0 0 1 12 6.99c.85 0 1.71.12 2.51.35 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.92-2.34 4.79-4.57 5.04.36.32.68.94.68 1.9v2.81c0 .27.18.6.69.49A10.23 10.23 0 0 0 22 12.23C22 6.58 17.52 2 12 2Z"/></svg>
+      <span>github.com · 开源仓库</span>
+      <span class="arrow">↗</span>
+    </div>
+  </div>
+</body>
+</html>

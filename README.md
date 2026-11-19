@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="docs/poster/fastsvn-banner.png" alt="FastSVN — 开源、免费、macOS 原生 SVN 客户端" width="100%" />
+</div>
+
 # FastSVN
 
 > **开源免费的 macOS SVN 客户端（Subversion GUI）** —— 终于有一个不像 2005 年的 SVN 图形界面了。
