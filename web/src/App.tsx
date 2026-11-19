@@ -16,6 +16,7 @@ import { LogDialog } from '@/src/components/dialogs/LogDialog';
 import { ConfirmDialog } from '@/src/components/dialogs/ConfirmDialog';
 import { RenameDialog } from '@/src/components/dialogs/RenameDialog';
 import { RepoBrowserDialog } from '@/src/components/dialogs/RepoBrowserDialog';
+import { RelocateDialog, type RelocateTarget } from '@/src/components/dialogs/RelocateDialog';
 import { PromptDialog, type PromptConfig } from '@/src/components/dialogs/PromptDialog';
 import { PreviewPane } from '@/src/components/PreviewPane';
 import type { LocalAction, LocalTarget } from '@/src/components/LocalDirPane';
@@ -48,6 +49,7 @@ type DialogId =
   | 'confirm'
   | 'repo'
   | 'prompt'
+  | 'relocate'
   | null;
 
 export default function App() {
@@ -86,6 +88,8 @@ export default function App() {
   } | null>(null);
   // 通用"问一个名字"弹窗：本地目录里新建子目录用
   const [promptState, setPromptState] = useState<PromptConfig | null>(null);
+  // 修改仓库地址的目标项目
+  const [relocateTarget, setRelocateTarget] = useState<RelocateTarget | null>(null);
   // 提交历史的查看目标：null = 整个工作副本
   const [logTarget, setLogTarget] = useState<{ path: string; name: string } | null>(null);
   // 调试/自测：?dialog=checkout&cu=<url>&cp=<path> 自动开始一次检出
@@ -503,6 +507,10 @@ export default function App() {
             });
             setDialog('prompt');
           }}
+          onRelocate={(path) => {
+            setRelocateTarget({ path, name: basename(path) });
+            setDialog('relocate');
+          }}
           onCopyPath={(path) => {
             void copyWithToast(path);
           }}
@@ -726,6 +734,22 @@ export default function App() {
           if (!open) {
             setDialog(null);
             setPromptState(null);
+          }
+        }}
+      />
+
+      <RelocateDialog
+        target={dialog === 'relocate' ? relocateTarget : null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDialog(null);
+            setRelocateTarget(null);
+          }
+        }}
+        onDone={({ path }) => {
+          // 地址变了：当前项目的状态、仓库浏览的默认地址都要重新读
+          if (ws.current === path) {
+            void ws.refresh({ force: true, withRemote: ws.tab === 'remote', forceRemote: true });
           }
         }}
       />

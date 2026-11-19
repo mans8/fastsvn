@@ -8,10 +8,12 @@ import type {
   LogEntry,
   RepoFilePreview,
   RepoInfoPayload,
+  RelocateResult,
   RepoListPayload,
   StatusPayload,
   UpdateResult,
   WcItem,
+  WcRepoInfo,
 } from './types';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -106,6 +108,18 @@ export const api = {
   /** 设置显示别名；传空字符串表示恢复成目录名 */
   setWorkingCopyAlias: (path: string, alias: string) =>
     post<{ paths: string[]; items: WcItem[] }>('/api/working-copies/alias', { path, alias }),
+
+  /** 工作副本当前指向的仓库地址（修改仓库地址对话框预填） */
+  workingCopyInfo: (path: string) =>
+    get<WcRepoInfo>(`/api/working-copies/info?path=${encodeURIComponent(path)}`),
+
+  /** 修改仓库地址：同一个仓库换了地址时用，结果带判定阶段 */
+  relocateWorkingCopy: (path: string, url: string, creds?: SvnCreds | null) =>
+    request<RelocateResult>('/api/working-copies/relocate', {
+      method: 'POST',
+      body: JSON.stringify({ path, url }),
+      headers: credHeaders(creds) ?? {},
+    }),
 
   // ---- 设置 ----
   settings: () => get<AppSettings>('/api/settings'),

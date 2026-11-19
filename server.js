@@ -25,7 +25,7 @@ const DATA_DIR = process.env.FASTSVN_HOME
 const STORE_FILE = path.join(DATA_DIR, 'working-copies.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const SNAPSHOT_DIR = path.join(os.homedir(), 'Library/Application Support/FastSVN/snapshots');
-const APP_VERSION = '0.6.26';
+const APP_VERSION = '0.6.27';
 
 // ---------- svn 可执行文件解析 ----------
 
@@ -645,13 +645,20 @@ function parseStatus(xml) {
 function parseInfo(xml) {
   const url = (/<url>([\s\S]*?)<\/url>/.exec(xml) || [])[1] || '';
   const root = (/<root>([\s\S]*?)<\/root>/.exec(xml) || [])[1] || '';
+  const uuid = (/<uuid>([\s\S]*?)<\/uuid>/.exec(xml) || [])[1] || '';
   const rev = (/<entry[^>]*revision="(\d+)"/.exec(xml) || [])[1] || '0';
   let branch = 'trunk';
   if (root && url.startsWith(root)) {
     const rest = url.slice(root.length).replace(/^\/+/, '');
     branch = rest.split('/')[0] || 'trunk';
   }
-  return { url: unescapeXML(url), root: unescapeXML(root), revision: Number(rev), branch: unescapeXML(branch) };
+  return {
+    url: unescapeXML(url),
+    root: unescapeXML(root),
+    uuid: unescapeXML(uuid.trim()),
+    revision: Number(rev),
+    branch: unescapeXML(branch),
+  };
 }
 
 // ---------- diff 解析 ----------
@@ -1060,6 +1067,188 @@ async function repoInfo(url, creds) {
     if (info.root && info.root !== clean) await rememberRepoCreds(info.root, creds);
   }
   return { url: clean, root: info.root || clean, revision: info.revision };
+}
+
+// ---------- 修改仓库地址（relocate） ----------
+
+/**
+ * relocate 只该用于"同一个仓库换了地址"。
+ * 它自己的校验只看 UUID，不管路径 —— 路径变了其实是把工作副本悄悄切到别的分支，
+ * 所以这里在预检阶段就把两者分开。
+ */
+const REPO_URL_RE = /^(https?|svn|svn\+ssh|file):\/\//i;
+
+function normalizeRepoUrl(value) {
+  if (typeof value !== 'string' || !REPO_URL_RE.test(value.trim())) {
+    throw new Error('仓库地址要以 http:// 、https:// 、svn:// 或 svn+ssh:// 开头');
+  }
+  return value.trim().replace(/\/+$/, '');
+}
+
+/** 探测一个仓库地址，返回仓库根 / UUID / 版本，凭据从请求头或钥匙串取 */
+async function probeRepoUrl(rawUrl, supplied) {
+  const clean = normalizeRepoUrl(rawUrl);
+  const creds = await getRepoCreds(clean, supplied);
+  let xml;
+  try {
+    xml = await svn(['info', '--xml', ...authArgs(creds), clean]);
+  } catch (e) {
+    throw authHint(e, creds);
+  }
+  const info = parseInfo(xml);
+  return { url: clean, root: info.root || clean, uuid: info.uuid || '', revision: info.revision, creds };
+}
+
+/** 某个地址相对仓库根的路径；不在根下返回 null */
+function repoRelativePath(url, root) {
+  // svn 输出的是百分号编码，用户手填的可能是中文：先解成同一形式再比
+  const pretty = (value) => {
+    const trimmed = String(value || '').replace(/\/+$/, '');
+    try {
+      return decodeURI(trimmed);
+    } catch {
+      return trimmed;
+    }
+  };
+  const u = pretty(url);
+  const r = pretty(root);
+  if (!r) return null;
+  if (u === r) return '';
+  if (!u.startsWith(`${r}/`)) return null;
+  return u.slice(r.length);
+}
+
+/**
+ * 把 svn 输出的百分号编码地址还原成可读形式，用于比较和提示。
+ * 用 decodeURI 而不是 decodeURIComponent：后者会把 %2F 解成路径分隔符。
+ */
+function safeDecodeUrl(value) {
+  const trimmed = String(value || '').trim().replace(/\/+$/, '');
+  try {
+    return decodeURI(trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
+/** 两个地址是不是同一个（忽略百分号编码差异与结尾斜杠） */
+function sameRepoUrl(a, b) {
+  return safeDecodeUrl(a) === safeDecodeUrl(b);
+}
+
+/**
+ * 预检 → relocate → 复检。
+ * 永远返回结构化结果（HTTP 200），前端靠 stage 决定把错误显示在对话框里还是当结果告知：
+ * precheck = 地址问题，改一下再提交；relocate/verify = 已经动过工作副本了。
+ */
+async function relocateWorkingCopy(wcPath, rawUrl, supplied) {
+  const wc = assertWC(wcPath);
+  const old = parseInfo(await svn(['info', '--xml', wc]));
+  const oldUrl = String(old.url || old.root || '').replace(/\/+$/, '');
+  if (!oldUrl) throw new Error('读不到这个工作副本的仓库地址');
+
+  const base = { oldUrl, newUrl: String(rawUrl || '').trim().replace(/\/+$/, ''), oldRoot: old.root || '' };
+  const fail = (stage, error, extra = {}) => ({ ok: false, stage, error, ...base, ...extra });
+
+  let newUrl;
+  try {
+    newUrl = normalizeRepoUrl(rawUrl);
+  } catch (e) {
+    return fail('precheck', e.message);
+  }
+  base.newUrl = newUrl;
+  if (sameRepoUrl(newUrl, oldUrl)) return fail('precheck', '新地址和当前地址一样，不需要重定向');
+
+  let target;
+  try {
+    target = await probeRepoUrl(newUrl, supplied);
+  } catch (e) {
+    // 前端靠这个标记就地展开"用户名 / 密码"
+    const needsAuth = /需要账号密码|账号或密码不对/.test(e.message);
+    return fail('precheck', e.message, needsAuth ? { needsAuth: true } : {});
+  }
+  if (old.uuid && target.uuid && old.uuid !== target.uuid) {
+    return fail(
+      'precheck',
+      '新地址指向的是另一个仓库（UUID 不同），不是这个项目原来的仓库。要换到另一个仓库，请重新检出。'
+    );
+  }
+  const oldRel = repoRelativePath(oldUrl, old.root || oldUrl);
+  const newRel = repoRelativePath(newUrl, target.root || newUrl);
+  if (newRel === null) {
+    return fail('precheck', `新地址必须在这个仓库的根（${safeDecodeUrl(target.root)}）下面`);
+  }
+  if (oldRel !== newRel) {
+    return fail(
+      'precheck',
+      `新旧地址在仓库里的路径不一样（${oldRel || '/'} → ${newRel || '/'}），这是切换分支或目录，不是重定向。`
+    );
+  }
+
+  const creds = target.creds || (await getRepoCreds(newUrl, supplied));
+  let relocateError = null;
+  try {
+    // svn relocate 会连新地址确认仓库身份，所以凭据要按新地址带
+    await svn(['relocate', newUrl, ...authArgs(creds)], wc);
+  } catch (e) {
+    relocateError = authHint(e, creds);
+  }
+
+  // 复检：以工作副本里真实的地址为准，不迷信退出码
+  let currentUrl = '';
+  try {
+    currentUrl = String(parseInfo(await svn(['info', '--xml', wc])).url || '').replace(/\/+$/, '');
+  } catch {
+    /* 复检读不到：照常按失败返回 */
+  }
+
+  if (sameRepoUrl(currentUrl, newUrl)) {
+    let statusError = null;
+    try {
+      // --depth empty：只确认工作副本本身还能用，不全量扫描
+      await svn(['status', '--quiet', '--depth', 'empty'], wc);
+    } catch (e) {
+      statusError = e;
+    }
+    // 地址已经变过去了：不管最终结论如何，旧地址的缓存都必须作废
+    wcUrlCache.delete(wc);
+    statusCache.delete(wc);
+    remoteCache.delete(wc);
+    if (diskCache[wc]) {
+      delete diskCache[wc];
+      saveDiskCacheSoon();
+    }
+    if (supplied?.username) {
+      await rememberRepoCreds(newUrl, supplied);
+      if (target.root && target.root !== newUrl) await rememberRepoCreds(target.root, supplied);
+    }
+    // 命令报错但地址已经是新的：半成功，交给界面提供「还原为原地址」
+    if (relocateError) {
+      const extra = statusError ? `；检查工作副本时也出错：${statusError.message}` : '';
+      return fail('verify', `已经改到新地址，但 svn relocate 报错：${relocateError.message}${extra}`, {
+        currentUrl,
+      });
+    }
+    if (statusError) {
+      return fail('verify', `已经改到新地址，但检查工作副本时出错：${statusError.message}`, { currentUrl });
+    }
+    return {
+      ok: true,
+      stage: 'verify',
+      oldUrl,
+      newUrl,
+      oldRoot: old.root || '',
+      root: target.root,
+      revision: target.revision,
+      currentUrl,
+    };
+  }
+
+  const error = relocateError
+    ? relocateError.message
+    : '工作副本里的地址没有改成新地址（本地元数据可能被锁住，可以点「修复」清理后重试）';
+  // 命令失败且地址还是旧的 = 原样没动；命令成功但地址不对 = 复检失败
+  return fail(relocateError ? 'relocate' : 'verify', error, { currentUrl });
 }
 
 /**
@@ -1927,6 +2116,26 @@ const server = http.createServer(async (req, res) => {
         }
         await writeStore(paths, aliases);
         return json(res, 200, { paths, items: withWcFlags(paths, aliases) });
+      }
+
+      // 当前仓库地址：修改仓库地址的对话框打开时用来预填
+      if (p === '/api/working-copies/info' && req.method === 'GET') {
+        const wc = assertWC(url.searchParams.get('path'));
+        const info = parseInfo(await svn(['info', '--xml', wc]));
+        return json(res, 200, {
+          path: wc,
+          url: String(info.url || info.root || '').replace(/\/+$/, ''),
+          root: String(info.root || '').replace(/\/+$/, ''),
+          uuid: info.uuid || '',
+          revision: info.revision,
+          branch: info.branch,
+        });
+      }
+
+      // 修改仓库地址（svn relocate）：预检 → 执行 → 复检，结果带 stage
+      if (p === '/api/working-copies/relocate' && req.method === 'POST') {
+        const body = await readBody(req);
+        return json(res, 200, await relocateWorkingCopy(body.path, body.url, svnCreds(req)));
       }
 
       // ---- 设置 ----

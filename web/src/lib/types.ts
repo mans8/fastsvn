@@ -79,6 +79,37 @@ export interface WcItem {
   exists: boolean;
 }
 
+/** 工作副本当前指向的仓库（修改仓库地址对话框打开时预填用） */
+export interface WcRepoInfo {
+  path: string;
+  url: string;
+  root: string;
+  uuid: string;
+  revision: number;
+  branch?: string;
+}
+
+/** relocate 的判定阶段：预检没通过时工作副本还没动过 */
+export type RelocateStage = 'precheck' | 'relocate' | 'verify';
+
+/**
+ * 修改仓库地址的结果。
+ * ok=false 且 currentUrl===newUrl 表示"地址已经改过去，但校验没通过"（半成功）。
+ */
+export interface RelocateResult {
+  ok: boolean;
+  stage: RelocateStage;
+  oldUrl: string;
+  newUrl: string;
+  oldRoot?: string;
+  root?: string;
+  revision?: number;
+  currentUrl?: string;
+  error?: string;
+  /** 预检失败是因为新地址要账号密码：界面就地展开登录 */
+  needsAuth?: boolean;
+}
+
 export interface AppSettings {
   /** 忽略 macOS 生成的 .DS_Store：不显示、也不参与提交 */
   ignoreDsStore: boolean;

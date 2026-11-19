@@ -10,7 +10,7 @@ import { Button } from '@/components/base/buttons/button';
 import { IconButton } from '@/components/base/buttons/icon-button';
 import { SidebarToggleIcon } from '@/src/components/SidebarToggleIcon';
 import { postWindowAction } from '@/src/lib/bridge';
-import { basename } from '@/src/lib/format';
+import { basename, prettyUrl } from '@/src/lib/format';
 
 interface Props {
   projectPath: string | null;
@@ -88,7 +88,7 @@ export function Toolbar({
               </span>
             )}
             {branch && (
-              <span className="text-body-2-regular text-text-tertiary">· {branch}</span>
+              <span className="text-body-2-regular text-text-tertiary">· {prettyUrl(branch)}</span>
             )}
             {revision != null && (
               <span className="rounded-md bg-background-tertiary-default px-1.5 py-0.5 font-mono text-caption-2-medium text-text-secondary">

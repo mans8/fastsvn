@@ -5,6 +5,7 @@ import {
   RiFolder3Line,
   RiFolderOpenLine,
   RiPriceTag3Line,
+  RiRouteLine,
   RiSettings3Line,
 } from '@remixicon/react';
 import { IconButton } from '@/components/base/buttons/icon-button';
@@ -30,6 +31,8 @@ interface Props {
   onRemove: (path: string) => void;
   /** 设置显示别名（不影响磁盘目录名） */
   onAlias: (path: string) => void;
+  /** 修改仓库地址（svn relocate） */
+  onRelocate: (path: string) => void;
   onCopyPath: (path: string) => void;
 }
 
@@ -42,6 +45,7 @@ export function AppSidebar({
   onSettings,
   onRemove,
   onAlias,
+  onRelocate,
   onCopyPath,
 }: Props) {
   return (
@@ -162,6 +166,7 @@ export function AppSidebar({
                 aria-label={`项目操作：${name}`}
                 onAction={(key) => {
                   if (key === 'alias') onAlias(path);
+                  if (key === 'relocate') onRelocate(path);
                   if (key === 'copy-path') onCopyPath(path);
                   if (key === 'reveal') void api.reveal(path).catch(() => {});
                   if (key === 'remove') onRemove(path);
@@ -175,6 +180,10 @@ export function AppSidebar({
                 </ContextMenuItem>
                 <ContextMenuItem id="reveal" icon={RiFolderOpenLine}>
                   在访达中显示
+                </ContextMenuItem>
+                {/* 没有 .svn 就没有可 relocate 的工作副本 */}
+                <ContextMenuItem id="relocate" icon={RiRouteLine} isDisabled={broken}>
+                  修改仓库地址…
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem id="remove" icon={RiDeleteBin6Line} variant="danger">
