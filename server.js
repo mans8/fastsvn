@@ -1851,7 +1851,23 @@ async function serveStatic(req, res, pathname) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${HOST}:${PORT}`);
+  // `//foo` 会被 URL 当成协议相对地址（空 host）解析失败；按普通路径处理，
+  // 实在解析不了就回 400。之前这里在 try 外面，一个坏请求就能让整个后端退出。
+  let url = null;
+  try {
+    url = new URL(req.url, `http://${HOST}:${PORT}`);
+  } catch {
+    try {
+      url = new URL(req.url.replace(/^\/+/, '/'), `http://${HOST}:${PORT}`);
+    } catch {
+      /* 下面统一回 400 */
+    }
+  }
+  if (!url) {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('请求地址无效');
+    return;
+  }
   const p = url.pathname;
 
   try {
